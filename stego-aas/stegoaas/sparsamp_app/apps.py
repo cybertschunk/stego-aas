@@ -1,11 +1,11 @@
 from django.apps import AppConfig
 
 
-class CodingConfig(AppConfig):
+class SparSampAppConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'coding'
+    name = 'sparsamp_app'
 
     def ready(self):
-        from .utils import load_model
+        from .sparsamp_utils import load_model
         load_model()
 

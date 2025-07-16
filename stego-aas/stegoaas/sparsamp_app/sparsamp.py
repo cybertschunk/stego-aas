@@ -1,27 +1,27 @@
-# This file is adapted from:
-# Wang, Y. (2025). Artifact for "SparSamp: Efficient Provably Secure Steganography Based on Sparse Sampling".
-# Zenodo. https://doi.org/10.5281/zenodo.15025436
-#
-# Licensed under the Creative Commons Attribution 4.0 International (CC BY 4.0).
-# See https://creativecommons.org/licenses/by/4.0/ for details.
-
-# TODO Lizenzangabe so ausreichend?
 import random
-import time
-from math import ceil
-
 import torch
-from scipy.stats import entropy
+from math import ceil
+from .sparsamp_utils import func_mrn, dec2bin, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE
+import numpy as np
 
-from .utils import func_mrn, dec2bin, get_lower_upper_bound, get_probs_past
 
-SCALE_FACTOR = 1e25
+def full_encode(context, message_bits, random_seed):
+    final_messages = []
+    i = 0
+    context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
+    rng = np.random.default_rng(random_seed)
+    to_decode = message_bits
+    while i < len(message_bits):
+        random_number = rng.integers(low=10**15, high=10**16)
+        min_tokens = min(100, len(to_decode)//7)
+        generated_ids, encoded_messages, SE_list = encode_spar(model=MODEL, context=context, message_bits=to_decode,min_token_length=min_tokens,max_token_length=1000,random_seed=random_number, device=DEVICE)
+        encoded_message = "".join(encoded_messages)
+        m = TOKENIZER.decode(generated_ids)
+        final_messages.append(m)
+        i += len(encoded_message)
+        to_decode = to_decode[len(encoded_message):]
+    return final_messages
 
-# 设置随机种子
-random.seed(42)
-torch.manual_seed(42)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed_all(42)
 
 def encode_step(probs, n_m, k_m):
     r = random.random()
@@ -43,40 +43,27 @@ def encode_step(probs, n_m, k_m):
 
 
 @torch.no_grad()
-def encode_spar(model, context, message_bits, min_token_length, max_token_length, device='cuda', block_size=32, top_p=1.0, random_seed=42):
+def encode_spar(model, context, message_bits, min_token_length, max_token_length, device='cuda', block_size=32,
+                top_p=1.0, random_seed=42):
     context = torch.tensor(context[-1022:], device=device, dtype=torch.long)
 
     generated_ids = []
     m_index = 0
     k_m = int(message_bits[:block_size], 2)
-    n_m = 2**block_size
+    n_m = 2 ** block_size
     token_num_generated = 0
     random.seed(random_seed)
     encoded_message = []
     past = None
     prev = context
-    total_entropy = 0
-    stat_time = 0
-    model_time = 0
     SE_list = []
-    # probs_list = []
-    # cumulative_probs_list = []
 
     while True:
-        model_time_1 = time.time()
+
         probs, indices, past = get_probs_past(model=model, prev=prev, past=past, device=device, top_p=top_p)
-        model_time_2 = time.time()
-        model_time += model_time_2 - model_time_1
-
-        stat_time_1 = time.time()
-        entropy_t = entropy(probs.cpu(), base=2)
-        total_entropy += entropy_t
-        stat_time_2 = time.time()
-        stat_time += stat_time_2 - stat_time_1
-
-        token_index, n_m, k_m,SE = encode_step(probs=probs,
-                                            n_m=n_m,
-                                            k_m=k_m)
+        token_index, n_m, k_m, SE = encode_step(probs=probs,
+                                                n_m=n_m,
+                                                k_m=k_m)
 
         SE_list.append(SE)
         # probs_list.append(probs)
@@ -97,12 +84,14 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
                 generated_ids.append(tokenID.item())
                 break
             if token_num_generated > max_token_length:
-                raise Exception(f"The generated {params_dict['min_token_length']} to {params_dict['max_token_length']} tokens are insufficient to embed a message length that is an integer multiple of the {params_dict['block_size']}. Please switch to the next context. Note that this is not an embedding error!")
+                print(
+                    f"We have generated more than 12000 tokens,but this block message still not embedded over. This context seems have problem. let's skip it.")
+                raise Exception("This context seems have problem.let's skip it.")
 
         generated_ids.append(tokenID.item())
         prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
 
-    return generated_ids, encoded_message, total_entropy, stat_time, model_time, SE_list
+    return generated_ids, encoded_message, SE_list
 
 
 @torch.no_grad()
@@ -137,10 +126,10 @@ def decode_spar(model, generated_ids, context, enSE_list, device='cuda', block_s
         SE_index += 1
         # probs_list.append(probs)
         # cumulative_probs_list.append(cumulative_probs)
-        
+
         temp0 = ceil((SE[0] - r) * n_m)
         temp1 = ceil((SE[1] - r) * n_m)
-        
+
         n_m = temp1 - temp0
         temp0_arr.append(temp0)
         n_m_arr.append(n_m)
@@ -161,6 +150,3 @@ def decode_spar(model, generated_ids, context, enSE_list, device='cuda', block_s
         prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
 
     return message, SE_diff
-
-
-# 不同模型下，嵌入率，提取时间

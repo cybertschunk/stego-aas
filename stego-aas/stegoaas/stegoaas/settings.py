@@ -37,7 +37,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'coding.apps.CodingConfig'
+    'sparsamp_app.apps.SparSampAppConfig',
 ]
 
 MIDDLEWARE = [
@@ -70,6 +70,7 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'stegoaas.wsgi.application'
 
+SPARSAMP_CONTEXT_STRING = "This is my context string for SparSamp"
 
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases

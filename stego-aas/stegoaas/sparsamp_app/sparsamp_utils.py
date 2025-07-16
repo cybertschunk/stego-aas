@@ -5,41 +5,21 @@
 # Licensed under the Creative Commons Attribution 4.0 International (CC BY 4.0).
 # See https://creativecommons.org/licenses/by/4.0/ for details.
 
-import random
 from typing import List
 
 import torch
 import torch.nn.functional as F
-from transformers import GPT2LMHeadModel, GPT2Tokenizer, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 MODEL = None
 TOKENIZER = None
+DEVICE = None
 
-def generate_binary_message(length: int, filename: str):
-
-    # 生成服从均匀分布的二进制比特串
-    binary_bits = ''.join(random.choice('01') for _ in range(length))
-
-
-    # 保存到文件
-    with open(filename, 'w') as f:
-        f.write(binary_bits)
-
-    print(f"二进制比特串已保存到 {filename}")
-
-
-def read_binary_message(filename: str) -> str:
-
-    with open(filename, 'r') as f:
-        binary_bits = f.read()
-
-    return binary_bits
 
 def get_lower_upper_bound(cumulative_probs, v):
-
     # 计算下界和上界
-    lower_bound = cumulative_probs[v-1] if v > 0 else torch.tensor(0)
-    upper_bound = cumulative_probs[v] if v < len(cumulative_probs)-1 else torch.tensor(1)
+    lower_bound = cumulative_probs[v - 1] if v > 0 else torch.tensor(0)
+    upper_bound = cumulative_probs[v] if v < len(cumulative_probs) - 1 else torch.tensor(1)
     SE = [lower_bound.item(), upper_bound.item()]
     return SE
 
@@ -60,14 +40,14 @@ def dec2bin(km, lm):
     # 使用 zfill 填充到 lm 位，保证长度为 lm
     return bin_str.zfill(lm)
 
+
 def load_model():
-    global MODEL, TOKENIZER
-    model = AutoModelForCausalLM.from_pretrained("openai-community/gpt2")
-    tokenizer = AutoTokenizer.from_pretrained("openai-community/gpt2")
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    model.to(device)
-    model.eval()
-    return model, tokenizer
+    global MODEL, TOKENIZER, DEVICE
+    MODEL = AutoModelForCausalLM.from_pretrained("openai-community/gpt2")
+    TOKENIZER = AutoTokenizer.from_pretrained("openai-community/gpt2")
+    DEVICE = torch.device("cpu")
+    MODEL.to(DEVICE)
+    MODEL.eval()
 
 
 def limit_past(past):
@@ -81,24 +61,19 @@ def limit_past(past):
             # past[i][j] = past[i][j][:, :, -256:]
     return past
 
-# def limit_past(past):
-#     past = list(past)
-#     for i in range(len(past)):
-#         past[i] = past[i][:, :, :, -1022:]
-#     return past
-
-
 def bits2int(bits):
     res = 0
     for i, bit in enumerate(bits):
-        res += int(bit)*(2**i)
+        res += int(bit) * (2 ** i)
     return res
+
 
 def int2bits(inp, num_bits):
     if num_bits == 0:
         return []
-    strlist = ('{0:0%db}'%num_bits).format(inp)
+    strlist = ('{0:0%db}' % num_bits).format(inp)
     return [int(strval) for strval in reversed(strlist)]
+
 
 def num_same_from_beg(bits1, bits2):
     assert len(bits1) == len(bits2)
@@ -106,7 +81,6 @@ def num_same_from_beg(bits1, bits2):
         if bits1[i] != bits2[i]:
             break
     return i
-
 
 
 def get_probs_past(model,
@@ -119,8 +93,8 @@ def get_probs_past(model,
     model_output = model(prev, past_key_values=past)
     past = model_output.past_key_values
 
-    logits = model_output.logits[0,-1,:].to(device)
-    logits,indices = logits.sort(descending=True)
+    logits = model_output.logits[0, -1, :].to(device)
+    logits, indices = logits.sort(descending=True)
     logits = logits.double()
     indices = indices.int()
     probs = F.softmax(logits, dim=-1)
@@ -133,15 +107,17 @@ def get_probs_past(model,
         probs = 1 / cum_probs[k - 1] * probs  # Normalizing
     return probs, indices, past
 
+
 def get_logits(model, input_ids):
     model_output = model(input_ids)
 
     logits_list = model_output.logits
     return logits_list
 
+
 def process_logits_to_probs(logits_list, logits_index, top_p):
     # logits_index 为负数，从-1开始
-    logits = logits_list[0,logits_index,:]
+    logits = logits_list[0, logits_index, :]
     logits, indices = logits.sort(descending=True)
     logits = logits.double()
     indices = indices.int()
@@ -154,10 +130,6 @@ def process_logits_to_probs(logits_list, logits_index, top_p):
         indices = indices[:k]
         probs = 1 / cum_probs[k - 1] * probs  # Normalizing
     return probs, indices
-
-
-
-
 
 
 def find_nearest(anum: float, probs: List[float]) -> int:
@@ -188,6 +160,7 @@ def load_context(file):
     context_list = df['context'].tolist()
     return context_list
 
+
 def get_bits_length_from_list(encoded_messages):
     # 统计嵌入的总比特数和生成的token数
     total_encoded_bits_length = 0
@@ -196,9 +169,11 @@ def get_bits_length_from_list(encoded_messages):
         total_encoded_bits_length += cur_encoded_bits_length
     return total_encoded_bits_length
 
-from math import ceil,floor
-def custom_round(type, x):
 
+from math import ceil, floor
+
+
+def custom_round(type, x):
     if type == "round":
         return round(x)
     elif type == "ceil":
@@ -207,3 +182,7 @@ def custom_round(type, x):
         return floor(x)
     else:
         raise ValueError("Invalid round_type. Use 'round', 'ceil', 'floor'.")
+
+
+def string_to_utf8_binary(s):
+    return ''.join(f"{byte:08b}" for byte in s.encode('utf-8'))
