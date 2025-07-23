@@ -8,20 +8,32 @@ import numpy as np
 def full_encode(context, message_bits, random_seed):
     final_messages = []
     i = 0
-    context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
+    tokenized_context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
     rng = np.random.default_rng(random_seed)
     to_decode = message_bits
     while i < len(message_bits):
         random_number = rng.integers(low=10**15, high=10**16)
         min_tokens = min(100, len(to_decode)//7)
-        generated_ids, encoded_messages, SE_list = encode_spar(model=MODEL, context=context, message_bits=to_decode,min_token_length=min_tokens,max_token_length=1000,random_seed=random_number, device=DEVICE)
+        generated_ids, encoded_messages = encode_spar(model=MODEL, context=tokenized_context, message_bits=to_decode,min_token_length=min_tokens,max_token_length=1000,random_seed=random_number, device=DEVICE)
         encoded_message = "".join(encoded_messages)
         m = TOKENIZER.decode(generated_ids)
         final_messages.append(m)
         i += len(encoded_message)
         to_decode = to_decode[len(encoded_message):]
+    full_decode(context=context, messages=final_messages, random_seed=random_seed)
     return final_messages
 
+def full_decode(context, messages, random_seed):
+    final_messages = []
+    context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
+    rng = np.random.default_rng(random_seed)
+    for message in messages:
+        random_number = rng.integers(low=10**15, high=10**16)
+        tokenized_message = TOKENIZER.encode(message, return_tensors='pt')
+        decoded_message = decode_spar(model=MODEL,device=DEVICE,random_seed=random_number,context=context,generated_ids=tokenized_message)
+        final_messages.append(decoded_message)
+    final_message = "".join(final_messages)
+    return final_message
 
 def encode_step(probs, n_m, k_m):
     r = random.random()
@@ -38,8 +50,7 @@ def encode_step(probs, n_m, k_m):
     else:
         k_m = k_m - temp0
     n_m = temp1 - temp0
-
-    return token_index, n_m, k_m, SE
+    return token_index, n_m, k_m
 
 
 @torch.no_grad()
@@ -56,21 +67,21 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
     encoded_message = []
     past = None
     prev = context
-    SE_list = []
 
     while True:
 
-        probs, indices, past = get_probs_past(model=model, prev=prev, past=past, device=device, top_p=top_p)
-        token_index, n_m, k_m, SE = encode_step(probs=probs,
-                                                n_m=n_m,
-                                                k_m=k_m)
+        probs, indices, past = get_probs_past(model=model,
+                                              prev=prev,
+                                              past=past,
+                                              device=device,
+                                              top_p=top_p)
 
-        SE_list.append(SE)
-        # probs_list.append(probs)
-        # cumulative_probs_list.append(cumulative_probs)
+
+
+        probs = probs.to(torch.float64)
+        token_index, n_m, k_m = encode_step(probs=probs, n_m=n_m, k_m=k_m)
         tokenID = indices[token_index]
         token_num_generated += 1
-
         if token_num_generated < min_token_length:
             if n_m == 1:
                 encoded_message.append(message_bits[m_index:m_index + block_size])
@@ -87,51 +98,45 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
                 print(
                     f"We have generated more than 12000 tokens,but this block message still not embedded over. This context seems have problem. let's skip it.")
                 raise Exception("This context seems have problem.let's skip it.")
-
         generated_ids.append(tokenID.item())
         prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
 
-    return generated_ids, encoded_message, SE_list
+    return generated_ids, encoded_message
 
 
 @torch.no_grad()
-def decode_spar(model, generated_ids, context, enSE_list, device='cuda', block_size=32, top_p=1.0, random_seed=42):
+def decode_spar(model, generated_ids, context, device='cuda', block_size=32, top_p=1.0, random_seed=42):
     context = torch.tensor(context[-1022:], device=device, dtype=torch.long)
+
     random.seed(random_seed)
     message = []
     n_m = 2 ** block_size
     k_m = 0
     n_m_arr = []
     temp0_arr = []
+    temp1_arr = []
     past = None
     prev = context
-    SE_list = []
-    SE_diff = 0
-    SE = []
-    probs_list = []
-    cumulative_probs_list = []
-    SE_index = 0
+
     for tokenID in generated_ids:
         r = random.random()
-        probs, indices, past = get_probs_past(model=model, prev=prev, past=past, device=device, top_p=top_p)
+        probs, indices, past = get_probs_past(model=model,
+                                              prev=prev,
+                                              past=past,
+                                              device=device,
+                                              top_p=top_p)
+        probs = probs.to(torch.float64)
         cumulative_probs = probs.cumsum(0)
+
         token_index = torch.where(indices == tokenID)[0]
         SE = get_lower_upper_bound(cumulative_probs, token_index)
-        # Due to floating point precision issues, cumulative probabilities may not match exactly
-        # Here we ignore this issue and use the stored SE values from encoding
-        if SE != enSE_list[SE_index]:
-            SE = enSE_list[SE_index]
-            SE_diff = 1
-        # SE = enSE_list[SE_index]
-        SE_index += 1
-        # probs_list.append(probs)
-        # cumulative_probs_list.append(cumulative_probs)
 
         temp0 = ceil((SE[0] - r) * n_m)
         temp1 = ceil((SE[1] - r) * n_m)
 
         n_m = temp1 - temp0
         temp0_arr.append(temp0)
+        temp1_arr.append(temp1)
         n_m_arr.append(n_m)
 
         if n_m == 1:
@@ -143,10 +148,10 @@ def decode_spar(model, generated_ids, context, enSE_list, device='cuda', block_s
                 count -= 1
             k_m = (k_m + 2 ** block_size) % 2 ** block_size
             temp0_arr = []
+            temp1_arr = []
             n_m_arr = []
             message.append(dec2bin(k_m, block_size))
             n_m = 2 ** block_size
-
         prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
 
-    return message, SE_diff
+    return message

@@ -93,8 +93,8 @@ def get_probs_past(model,
     model_output = model(prev, past_key_values=past)
     past = model_output.past_key_values
 
-    logits = model_output.logits[0, -1, :].to(device)
-    logits, indices = logits.sort(descending=True)
+    logits = model_output.logits[0,-1,:].to(device)
+    logits,indices = logits.sort(descending=True)
     logits = logits.double()
     indices = indices.int()
     probs = F.softmax(logits, dim=-1)
@@ -106,6 +106,7 @@ def get_probs_past(model,
         indices = indices[:k]
         probs = 1 / cum_probs[k - 1] * probs  # Normalizing
     return probs, indices, past
+
 
 
 def get_logits(model, input_ids):

@@ -1,12 +1,11 @@
 # source code created with AI assistance
 
-from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import EncodeRequestSerializer, DecodeRequestSerializer, MessagesSerializer
-from .sparsamp import decode_spar, full_encode
+from .serializers import EncodeRequestSerializer, DecodeRequestSerializer, MessagesSerializer, MessageSerializer
+from .sparsamp import full_encode, full_decode
 from .sparsamp_utils import string_to_utf8_binary
 
 
@@ -29,9 +28,10 @@ class SparsampDecodeView(APIView):
     def post(self, request):
         serializer = DecodeRequestSerializer(data=request.data)
         if serializer.is_valid():
-            decoded = decode_spar(
-                serializer.validated_data['encoded_text'],
-                serializer.validated_data['random_seed']
-            )
-            return Response({"decoded_output": decoded})
+            messages = serializer.validated_data['messages']
+            requested_context = serializer.validated_data['context']
+            requested_seed = serializer.validated_data['random_seed']
+            decoded_text = full_decode(context=requested_context, messages=messages, random_seed=requested_seed)
+            serializer = MessageSerializer({"message": decoded_text})
+            return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
