@@ -187,3 +187,11 @@ def custom_round(type, x):
 
 def string_to_utf8_binary(s):
     return ''.join(f"{byte:08b}" for byte in s.encode('utf-8'))
+
+def utf8_binary_to_string(bstr):
+    # Split the binary string into 8-bit bytes
+    bytes_list = [int(bstr[i:i+8], 2) for i in range(0, len(bstr), 8)]
+    # Create bytes object
+    byte_obj = bytes(bytes_list)
+    # Decode as UTF-8
+    return byte_obj.decode('utf-8')

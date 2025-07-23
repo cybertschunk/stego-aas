@@ -1,7 +1,8 @@
 import random
 import torch
 from math import ceil
-from .sparsamp_utils import func_mrn, dec2bin, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE
+from .sparsamp_utils import func_mrn, dec2bin, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE, \
+    utf8_binary_to_string
 import numpy as np
 
 
@@ -29,9 +30,10 @@ def full_decode(context, messages, random_seed):
     rng = np.random.default_rng(random_seed)
     for message in messages:
         random_number = rng.integers(low=10**15, high=10**16)
-        tokenized_message = TOKENIZER.encode(message, return_tensors='pt')
+        tokenized_message = TOKENIZER.encode(message, return_tensors='pt')[0].tolist()
         decoded_message = decode_spar(model=MODEL,device=DEVICE,random_seed=random_number,context=context,generated_ids=tokenized_message)
-        final_messages.append(decoded_message)
+        utf8_string = utf8_binary_to_string("".join(decoded_message))
+        final_messages.append(utf8_string)
     final_message = "".join(final_messages)
     return final_message
 
