@@ -2,11 +2,20 @@ import random
 import torch
 from math import ceil
 from .sparsamp_utils import func_mrn, dec2bin, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE, \
-    utf8_binary_to_string
+    string_to_utf8_binary, utf8_binary_to_string
 import numpy as np
 
+def process_message(message_text: str, block_size: int) -> str:
+    """Process message to ensure length meets requirements"""
+    message_bits = string_to_utf8_binary(message_text)
+    if len(message_bits) % block_size != 0:
+        padding_length = block_size - (len(message_bits) % block_size)
+        message_bits = message_bits + '0' * padding_length
+        print(f"Message length padded to {len(message_bits)} bits")
+    return message_bits
 
-def full_encode(context, message_bits, random_seed):
+def full_encode(context, message_text, random_seed):
+    message_bits = process_message(message_text,32)
     final_messages = []
     i = 0
     tokenized_context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
@@ -17,11 +26,10 @@ def full_encode(context, message_bits, random_seed):
         min_tokens = min(100, len(to_decode)//7)
         generated_ids, encoded_messages = encode_spar(model=MODEL, context=tokenized_context, message_bits=to_decode,min_token_length=min_tokens,max_token_length=1000,random_seed=random_number, device=DEVICE)
         encoded_message = "".join(encoded_messages)
-        m = TOKENIZER.decode(generated_ids)
+        m = TOKENIZER.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         final_messages.append(m)
         i += len(encoded_message)
         to_decode = to_decode[len(encoded_message):]
-    full_decode(context=context, messages=final_messages, random_seed=random_seed)
     return final_messages
 
 def full_decode(context, messages, random_seed):
@@ -33,7 +41,8 @@ def full_decode(context, messages, random_seed):
         tokenized_message = TOKENIZER.encode(message, return_tensors='pt')[0].tolist()
         decoded_message = decode_spar(model=MODEL,device=DEVICE,random_seed=random_number,context=context,generated_ids=tokenized_message)
         utf8_string = utf8_binary_to_string("".join(decoded_message))
-        final_messages.append(utf8_string)
+        uft8_string_stripped = utf8_string.rstrip("\x00")
+        final_messages.append(uft8_string_stripped)
     final_message = "".join(final_messages)
     return final_message
 
