@@ -1,9 +1,21 @@
+from __future__ import annotations        # no effect in 3.8 but safe
+
 import random
 import torch
 from math import ceil
+
+from transformers import AutoTokenizer
+import sys
+from typing import Dict, List, Tuple, Iterable
+
+
 from .sparsamp_utils import func_mrn, dec2bin, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE, \
     string_to_utf8_binary, utf8_binary_to_string
 import numpy as np
+
+Edge = Tuple[int, int]                    # (next_char_index, token_id)
+TokenGraph = Dict[int, List[Edge]]        # char_index -> list of edges
+
 
 
 def full_encode(context, message_text, random_seed):
@@ -105,35 +117,6 @@ def remove_checkpoint_bits(bits, block_size, blocks_per_interval):
             out.append(block_bits)
     return ''.join(out)
 
-def generate_all_tokenizations(text, tokenizer, max_token_length=30):
-    """
-    Enumerate all valid tokenizations whose decoded output matches `text`.
-    Works on short segments (for backcheck).
-    """
-    from collections import defaultdict
-
-    # Prepare prefix-to-token-id lookup (for performance)
-    vocab = tokenizer.get_vocab()
-    prefix_to_id = defaultdict(list)
-    for t_str, tid in vocab.items():
-        prefix_to_id[t_str].append(tid)
-    results = []
-    text_len = len(text)
-
-    def recurse(idx, path):
-        if idx == text_len:
-            results.append(path[:])
-            return
-        for l in range(1, min(max_token_length, text_len - idx) + 1):
-            substr = text[idx:idx+l]
-            if substr in prefix_to_id:
-                for tid in prefix_to_id[substr]:
-                    path.append(tid)
-                    recurse(idx + l, path)
-                    path.pop()
-
-    recurse(0, [])
-    return results
 
 
 
