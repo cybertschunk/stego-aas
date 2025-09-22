@@ -8,12 +8,21 @@
 from typing import List
 
 import torch
+import re
 import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from math import ceil, floor
 
 MODEL = None
 TOKENIZER = None
 DEVICE = None
+
+def tokenize_first_n_words(text: str, n: int, tokenizer):
+    # Split on non-whitespace runs; take at most n
+    words = re.findall(r"\S+", text)[:n]
+    # Tell HF the input is pretokenized into words
+    enc = tokenizer(words, return_tensors='pt')
+    return enc
 
 
 def get_lower_upper_bound(cumulative_probs, v):
@@ -169,9 +178,6 @@ def get_bits_length_from_list(encoded_messages):
         cur_encoded_bits_length = len(encoded_message)
         total_encoded_bits_length += cur_encoded_bits_length
     return total_encoded_bits_length
-
-
-from math import ceil, floor
 
 
 def custom_round(type, x):

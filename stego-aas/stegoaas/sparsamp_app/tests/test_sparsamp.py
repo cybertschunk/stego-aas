@@ -1,6 +1,7 @@
 from django.test import TestCase
 
-from ..sparsamp import full_encode, full_decode
+from ..sparsamp import full_encode
+from ..decoding import full_decode
 
 
 class SparSampTest(TestCase):
