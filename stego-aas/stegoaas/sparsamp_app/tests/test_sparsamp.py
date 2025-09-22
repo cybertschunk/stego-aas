@@ -2,7 +2,8 @@ from django.test import TestCase
 
 from ..encoding import full_encode
 from ..decoding import full_decode
-
+from ..token_graph import build_token_graph
+from ..sparsamp_utils import TOKENIZER
 
 class SparSampTest(TestCase):
 
@@ -11,6 +12,7 @@ class SparSampTest(TestCase):
         text = "attack@dawn"
         seed = 12345
         messages = full_encode(context, text, seed)
+        build_token_graph(text, TOKENIZER)
         decoded_text = full_decode(context, messages, seed)
         self.assertEqual(decoded_text, text)
 

@@ -2,7 +2,6 @@ from __future__ import annotations  # no effect in 3.8 but safe
 
 import random
 from math import ceil
-from typing import Dict, List, Tuple
 
 import numpy as np
 import torch
@@ -10,8 +9,6 @@ import torch
 from .sparsamp_utils import func_mrn, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE, \
     string_to_utf8_binary
 
-Edge = Tuple[int, int]  # (next_char_index, token_id)
-TokenGraph = Dict[int, List[Edge]]  # char_index -> list of edges
 
 
 def full_encode(context, message_text, random_seed):
@@ -100,8 +97,6 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
         prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
 
     return generated_ids, encoded_message
-
-
 
 def process_message_with_checkpoints(
         message_text: str,
