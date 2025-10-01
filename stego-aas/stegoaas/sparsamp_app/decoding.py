@@ -35,6 +35,7 @@ class BackCheckNode:
     """Node in the BackCheck tree for token ambiguity resolution"""
 
     # Node attributes as specified in requirements
+    is_explored = False
     known_correct: bool = False
     known_wrong: bool = False
     token: int = -1  # Token index
@@ -64,7 +65,7 @@ class BackCheckVerificationResult:
     correct_tokens: List[int] = field(default_factory=list)
     visited_tokens: List[int] = field(default_factory=list)
     success: bool = False
-    random_state: any = None
+    last_verified_state: BlindDecodingState = None
 
 class BackCheckTree:
     """BackCheck tree for token ambiguity resolution"""
@@ -82,14 +83,17 @@ class BackCheckTree:
     def _build_initial_tree(self):
         """Build initial tree with default tokenization as greedy path"""
         # Get default (greedy) tokenization
-        default_tokens = self.tokenizer.encode(self.stego_text, add_special_tokens=False)
+        greedy_tokens = self.tokenizer.encode(self.stego_text, add_special_tokens=False)
 
         # Create nodes for default tokenization path
         current_pos = 0
         current_node = self.root
 
-        for i, token_id in enumerate(default_tokens):
-            token_text = self.tokenizer.decode([token_id], clean_up_tokenization_spaces=False)
+        self._build_greedy_path(current_node, current_pos, greedy_tokens)
+
+    def _build_greedy_path(self, current_node, current_pos, greedy_tokens):
+        for i, token_id in enumerate(greedy_tokens):
+            token_text = self.tokenizer.decode([token_id], clean_up_tokenization_spaces=True)
             end_pos = current_pos + len(token_text)
 
             # Create node for this token
@@ -115,8 +119,18 @@ class BackCheckTree:
         if node.end_pos >= len(self.stego_text):
             return  # Already at end of text
 
+        node.is_explored = True
         # Get remaining text to match
         remaining_text = self.stego_text[node.end_pos:]
+        if len(node.children) > 0:
+            self.explore_model_based(node, remaining_text)
+            return
+
+        greedy_tokens = self.tokenizer.encode(remaining_text, add_special_tokens=False)
+        self._build_greedy_path(node,node.end_pos,greedy_tokens)
+
+
+    def explore_model_based(self, node: BackCheckNode, remaining_text: str):
 
         # Find all possible tokens that could continue from this position
         possible_continuations = []
@@ -126,7 +140,7 @@ class BackCheckTree:
 
         # Check each token to see if it could be a valid continuation
         for token_str, token_id in sorted_tokens:
-            if remaining_text.startswith(token_str):
+            if remaining_text.startswith(token_str) and token_id not in [child.token for child in node.children]:
                 possible_continuations.append((token_id, token_str, len(token_str)))
 
         if not possible_continuations:
@@ -163,7 +177,7 @@ class BackCheckTree:
 
         for tid in range(vocab_limit):
             try:
-                s = self.tokenizer.decode([tid], clean_up_tokenization_spaces=False)
+                s = self.tokenizer.decode([tid], clean_up_tokenization_spaces=True)
                 if s and len(s) <= len(remaining_text):
                     if all(ch in allowed or ch.isspace() for ch in s):
                         tups.append((s, tid))
@@ -216,57 +230,42 @@ class BackCheckDecoder:
         self.device = device
         self.decode_params = decode_params
 
-    def verify_path(self, token_path: List[int]) -> BackCheckVerificationResult:
+    def verify_path(self, token_path: List[int], last_verified_state : BlindDecodingState = None) -> BackCheckVerificationResult:
         """Verification function using existing try_blind_decoding"""
         try:
             # Use existing try_blind_decoding function
-            success, final_state, last_correct_idx = try_blind_decoding(
+            success, final_state, last_idx = try_blind_decoding(
                 token_sequence=token_path,
-                last_verified_state=None,
+                last_verified_state=last_verified_state,
                 model=self.model,
                 context=self.context,
                 device=self.device,
                 block_size=self.decode_params.get('block_size', 32),
                 top_p=self.decode_params.get('top_p', 1.0),
                 random_seed=self.decode_params.get('random_seed', 42),
-                blocks_per_interval=self.decode_params.get('blocks_per_interval', 4),
-                get_probs_past_func=self.decode_params.get('get_probs_past_func', get_probs_past)
+                blocks_per_interval=self.decode_params.get('blocks_per_interval', 4)
             )
+            decoded_message = final_state.get_discovered_message_as_string()
+            correct_tokens = token_path[:final_state.token_count] if final_state.token_count >= 0 else []
+            visited_tokens = token_path[:last_idx] if last_idx >= 0 else []
 
-            if success and final_state:
-                decoded_message = final_state.get_discovered_message_as_string()
-                correct_tokens = token_path[:last_correct_idx + 1] if last_correct_idx >= 0 else []
 
-                return BackCheckVerificationResult(
-                    decoded_message=decoded_message,
-                    correct_tokens=correct_tokens,
-                    visited_tokens=token_path.copy(),
-                    success=True,
-                    random_state=getattr(final_state, 'random_state_data', None)
-                )
-            else:
-                return BackCheckVerificationResult(
-                    decoded_message="",
-                    correct_tokens=token_path[:last_correct_idx + 1] if last_correct_idx >= 0 else [],
-                    visited_tokens=token_path.copy(),
-                    success=False,
-                    random_state=None
-                )
+            return BackCheckVerificationResult(
+                decoded_message=decoded_message,
+                correct_tokens=correct_tokens,
+                visited_tokens=visited_tokens,
+                success=success,
+                last_verified_state=final_state)
+
 
         except Exception as e:
             print(f"Error in BackCheck path verification: {e}")
-            return BackCheckVerificationResult(
-                decoded_message="",
-                correct_tokens=[],
-                visited_tokens=token_path.copy(),
-                success=False,
-                random_state=None
-            )
+            raise e
 
     def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = 100) -> Optional[Tuple[List[int], str]]:
         """Main BackCheck algorithm implementation"""
         attempts = 0
-
+        last_verified_state = None
         while attempts < max_attempts:
             attempts += 1
 
@@ -278,10 +277,11 @@ class BackCheckDecoder:
                 break
 
             # Verify the path using existing decoding
-            result = self.verify_path(path_tokens)
+            result = self.verify_path(path_tokens, last_verified_state)
+            last_verified_state = result.last_verified_state
 
             # Update tree based on verification results
-            self._update_tree_from_verification(tree, result, path_tokens)
+            self._update_tree_from_verification(tree, result)
 
             if result.success:
                 print(f"✅ BackCheck succeeded after {attempts} attempts!")
@@ -295,33 +295,48 @@ class BackCheckDecoder:
     def _find_path_through_tree(self, tree: BackCheckTree) -> Optional[List[int]]:
         """Find path through tree following priority rules"""
 
-        def search_recursive(current_node: BackCheckNode) -> Optional[List[int]]:
-            # If we've reached end of text, return empty path (success)
-            if current_node.end_pos >= len(tree.stego_text):
-                return []
+        solution = []
+        current_node = tree.root
+        while current_node.end_pos < len(tree.stego_text):
+            if len(current_node.children) == 0 or all(child.known_wrong for child in current_node.children):
+                if not current_node.is_explored:
+                    # Explore this node to find possible continuations
+                    tree.explore_node(current_node)
+                    continue
+            correct_children = [child for child in current_node.children if child.known_correct]
+            if correct_children:
+                current_node = correct_children[0]
+                solution.append(current_node.token)
+                continue
+            greedy_children = [child for child in current_node.children if child.greedy_correct and not child.known_wrong]
+            if greedy_children:
+                current_node = greedy_children[0]
+                solution.append(current_node.token)
+                continue
+            best_child = max(
+                (child for child in current_node.children if not child.known_wrong),
+                key=lambda c: c.likeliness,
+                default=None
+            )
+            if best_child:
+                current_node = best_child
+                solution.append(current_node.token)
+                continue
 
-            # If node has no children, explore to create them
-            if len(current_node.children) == 0 and current_node != tree.root:
-                tree.explore_node(current_node)
+            if current_node.known_correct:
+                raise ValueError("node known to be correct, but no possible path!")
 
-            # Get available children (not marked as wrong)
-            available_children = [child for child in current_node.children if not child.known_wrong]
+            if current_node.parent is None:
+                return None  # No valid path
+            # if nothing is found, go back to parent
+            current_node.known_wrong = True  # Mark node as wrong to stop further attempts
+            solution.pop()
+            current_node = current_node.parent
 
-            if not available_children:
-                return None  # No valid children, backtrack
+        print(solution)
+        print(TOKENIZER.decode(solution, clean_up_tokenization_spaces=True))
+        return solution
 
-            # Sort children by priority
-            sorted_children = self._sort_children_by_priority(available_children)
-
-            # Try each child in priority order
-            for child in sorted_children:
-                child_path = search_recursive(child)
-                if child_path is not None:
-                    return [child.token] + child_path
-
-            return None  # No child succeeded
-
-        return search_recursive(tree.root)
 
     def _sort_children_by_priority(self, children: List[BackCheckNode]) -> List[BackCheckNode]:
         """Sort children by priority: known_correct > greedy_correct > likeliness"""
@@ -338,26 +353,36 @@ class BackCheckDecoder:
 
         return sorted(children, key=priority_key)
 
-    def _update_tree_from_verification(self, tree: BackCheckTree, result: BackCheckVerificationResult, path_tokens: List[int]):
+    def _update_tree_from_verification(self, tree: BackCheckTree, result: BackCheckVerificationResult):
         """Update tree nodes based on verification results"""
-
-        # Mark correct tokens as known_correct
-        for correct_token in result.correct_tokens:
-            for node in tree.all_nodes:
-                if node.token == correct_token and not node.known_correct:
-                    node.known_correct = True
+        current_node = tree.root
+        i = 0
+        while i < len(result.correct_tokens):
+            child_found = False
+            for child in current_node.children:
+                if child.token == result.correct_tokens[i]:
+                    child.known_correct = True
+                    current_node = child
+                    i += 1
+                    child_found = True
                     break
+            if not child_found:
+                raise ValueError("Correct token not found in children during update")
 
-        # If verification failed, mark last visited token as wrong
-        if not result.success and result.visited_tokens:
-            last_failed_token = result.visited_tokens[-1]
-
-            for node in tree.all_nodes:
-                if (node.token == last_failed_token and
-                    not node.known_correct and
-                    not node.known_wrong):
-                    node.known_wrong = True
+        i = 0
+        current_node = tree.root
+        while i < len(result.visited_tokens):
+            child_found = False
+            for child in current_node.children:
+                if child.token == result.visited_tokens[i]:
+                    current_node = child
+                    child_found = True
+                    i += 1
                     break
+            if not child_found:
+                raise ValueError("Visited token not found in children during update")
+        current_node.known_wrong = True
+
 
 def backcheck_decode_single_message(message: str, context: str, random_seed: int) -> str:
     """
@@ -391,40 +416,10 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
             print(f"✅ BackCheck successful: '{decoded_message}'")
             return decoded_message.rstrip("\x00")
         else:
-            print("⚠️ BackCheck failed, falling back to linear approach")
-
-            # Fallback to existing linear approach
-            tokenization, decoded_message = linear_blind_backcheck(
-                stego_text=message,
-                model=MODEL,
-                tokenizer=TOKENIZER,
-                context=context_tensor,
-                device=DEVICE,
-                random_seed=random_seed,
-                max_attempts=1000
-            )
-
-            if decoded_message:
-                print(f"✅ Linear fallback successful: '{decoded_message}'")
-                return decoded_message.rstrip("\x00")
-            else:
-                print("❌ Both BackCheck and linear approaches failed")
-                return ""
-
+            raise ValueError("⚠️ BackCheck failed, falling back to linear approach")
     except Exception as e:
         print(f"Error in BackCheck decoding: {e}")
-
-        # Fallback to decode_spar if BackCheck fails
-        try:
-            tokenized_message = TOKENIZER.encode(message, return_tensors='pt')[0].tolist()
-            context_tensor = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
-            decoded_message = decode_spar(model=MODEL, device=DEVICE, random_seed=random_seed,
-                                        context=context_tensor, generated_ids=tokenized_message)
-            utf8_string = utf8_binary_to_string("".join(decoded_message))
-            return utf8_string.rstrip("\x00")
-        except Exception as fallback_error:
-            print(f"Fallback also failed: {fallback_error}")
-            return ""
+        raise e
 
 # ============================================================================
 # EXISTING CODE - PRESERVED WITH MINIMAL CHANGES
@@ -439,6 +434,8 @@ class BlindDecodingState:
         self.completed_blocks = 0
         self.prev = None
         self.past = None
+        self.token_count = 0
+        self.current_tokens = []
 
     def save_random_state(self):
         self.random_state_data = random.getstate()
@@ -450,11 +447,7 @@ class BlindDecodingState:
     def add_discovered_block(self, block_bits: str, is_checkpoint: bool):
         self.decoded_blocks.append(block_bits)
         self.completed_blocks += 1
-        if is_checkpoint:
-            message_content = block_bits[:self.block_size - 8]
-            self.discovered_message_bits += message_content
-        else:
-            self.discovered_message_bits += block_bits
+        self.discovered_message_bits += block_bits
 
     def get_discovered_message_as_string(self) -> str:
         try:
@@ -486,7 +479,7 @@ def _prepare_tokens(tokenizer, text):
     allowed = set(text) # every Unicode character in the text
     tups = [] # (decoded_string, token_id)
     for tid in range(tokenizer.vocab_size):
-        s = tokenizer.decode([tid], clean_up_tokenization_spaces=False)
+        s = tokenizer.decode([tid], clean_up_tokenization_spaces=True)
         if s and all(ch in allowed or ch.isspace() for ch in s):
             tups.append((s, tid))
     return sorted(tups) # lexicographic order
@@ -539,57 +532,6 @@ def build_token_graph(text, tokenizer):
     print(f"Graph built with {total_edges} edges in O(n) time")
     return graph
 
-def prioritized_path_generator(graph: TokenGraph, end_pos: int, tokenizer, text: str) -> Iterable[List[int]]:
-    """
-    Generate complete tokenization paths in priority order using your graph.
-    This directly generates paths without building a tree.
-    """
-    # First, yield the greedy tokenization
-    greedy_tokens = tokenizer.encode(text, add_special_tokens=False)
-
-    # Verify greedy path exists in graph and yield it first
-    pos = 0
-    greedy_path = []
-    greedy_valid = True
-    for token_id in greedy_tokens:
-        found = False
-        for next_pos, tid in graph.get(pos, []):
-            if tid == token_id:
-                greedy_path.append(token_id)
-                pos = next_pos
-                found = True
-                break
-        if not found:
-            greedy_valid = False
-            break
-
-    if greedy_valid and pos == end_pos:
-        print(f"🎯 Yielding greedy tokenization first: {len(greedy_path)} tokens")
-        yield greedy_path
-
-    # Then use DFS to generate all other complete paths
-    def dfs_generate_paths(current_pos: int, current_path: List[int], visited_paths: set):
-        if current_pos == end_pos:
-            path_tuple = tuple(current_path)
-            if path_tuple not in visited_paths:
-                visited_paths.add(path_tuple)
-                yield current_path.copy()
-            return
-
-        # Get all possible next tokens from current position
-        edges = graph.get(current_pos, [])
-        # Sort edges by token likelihood (simple heuristic)
-        edges_sorted = sorted(edges, key=lambda x: x[1]) # Sort by token_id (lower = more common)
-
-        for next_pos, token_id in edges_sorted:
-            current_path.append(token_id)
-            yield from dfs_generate_paths(next_pos, current_path, visited_paths)
-            current_path.pop()
-
-    # Generate remaining paths
-    visited_paths = {tuple(greedy_path)} if greedy_valid else set()
-    yield from dfs_generate_paths(0, [], visited_paths)
-
 @torch.no_grad()
 def try_blind_decoding(token_sequence: List[int],
                        last_verified_state: Optional[BlindDecodingState],
@@ -599,8 +541,7 @@ def try_blind_decoding(token_sequence: List[int],
                        block_size: int = 32,
                        top_p: float = 1.0,
                        random_seed: int = 42,
-                       blocks_per_interval: int = 4,
-                       get_probs_past_func=None) -> Tuple[bool, Optional[BlindDecodingState], int]:
+                       blocks_per_interval: int = 4) -> Tuple[bool, Optional[BlindDecodingState], int]:
     """Try to decode a token sequence without knowing the original message"""
     n_m = 2 ** block_size
     k_m = 0
@@ -608,7 +549,6 @@ def try_blind_decoding(token_sequence: List[int],
     temp0_arr = []
     temp1_arr = []
     current_interval_counter = 0
-    token_count = 0
     start_token_idx = 0
     if last_verified_state is None:
         state = BlindDecodingState()
@@ -621,7 +561,7 @@ def try_blind_decoding(token_sequence: List[int],
     else:
         state = copy.deepcopy(last_verified_state)
         state.restore_random_state()
-        start_token_idx = state.token_count
+        start_token_idx = len(state.current_tokens)
     try:
         for token_idx in range(start_token_idx, len(token_sequence)):
             tokenID = token_sequence[token_idx]
@@ -644,10 +584,13 @@ def try_blind_decoding(token_sequence: List[int],
             temp1_arr.append(temp1)
             n_m_arr.append(n_m)
 
-            if n_m <= 0:
-                return False, state, token_idx - 1
+            state.prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
+            state.token_count += 1
+            state.current_tokens.append(tokenID)
 
-            token_count += 1
+            if n_m <= 0:
+                return False, last_verified_state, state.token_count
+
 
             if n_m == 1:
                 current_interval_counter += 1
@@ -666,9 +609,11 @@ def try_blind_decoding(token_sequence: List[int],
 
                 if is_checkpoint:
                     if not decoded_block_bits.endswith('00000000'):
-                        return False, state, token_idx - 1
+                        return False, last_verified_state, state.token_count
                     state.add_discovered_block(decoded_block_bits, is_checkpoint=True)
                     state.current_interval_counter = 0
+                    state.save_random_state()
+                    last_verified_state = copy.deepcopy(state)
                 else:
                     state.add_discovered_block(decoded_block_bits, is_checkpoint=False)
 
@@ -677,9 +622,9 @@ def try_blind_decoding(token_sequence: List[int],
                 n_m_arr = []
                 n_m = 2 ** block_size
                 k_m = 0
-                state.save_random_state()
 
-            state.prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
+
+
 
         return True, state, len(token_sequence) - 1
 
@@ -687,144 +632,6 @@ def try_blind_decoding(token_sequence: List[int],
         print(f"Exception during decoding: {e}")
         return False, state, start_token_idx - 1
 
-def linear_blind_backcheck(stego_text: str,
-                           model: PreTrainedModel,
-                           tokenizer: PreTrainedTokenizer,
-                           context: torch.Tensor,
-                           device: str = 'cuda',
-                           block_size: int = 32,
-                           top_p: float = 1.0,
-                           random_seed: int = 42,
-                           blocks_per_interval: int = 4,
-                           get_probs_past_func=None,
-                           max_attempts: int = 10000) -> Tuple[Optional[List[int]], Optional[str]]:
-    """
-    ULTRA-FAST blind backcheck using your linear O(n) graph approach.
-    This is the fastest possible approach:
-    - O(n) graph construction where n = text length
-    - Direct path generation without tree overhead
-    - Immediate testing of each tokenization
-    """
-    print(f"🚀 LINEAR O(n) blind backcheck for text of length {len(stego_text)}")
-    import time
-    start_time = time.time()
-
-    # Build the linear token graph - O(n) complexity!
-    graph = build_token_graph(stego_text, tokenizer)
-    graph_time = time.time() - start_time
-    print(f"✅ Linear graph built in {graph_time:.3f} seconds")
-
-    # Generate and test tokenizations directly from the graph
-    print("🔍 Testing tokenizations directly from graph...")
-    attempts = 0
-    for tokenization in prioritized_path_generator(graph, len(stego_text), tokenizer, stego_text):
-        attempts += 1
-        if attempts > max_attempts:
-            print(f"⏰ Reached maximum attempts ({max_attempts}), stopping")
-            break
-
-        if attempts % 100 == 0:
-            elapsed = time.time() - start_time
-            print(f"📊 Tested {attempts} tokenizations in {elapsed:.1f}s...")
-
-        # Test this tokenization immediately
-        success, final_state, last_correct = try_blind_decoding(
-            tokenization, None, model, context,
-            device, block_size, top_p, random_seed, blocks_per_interval,
-            get_probs_past_func
-        )
-
-        if success and final_state:
-            total_time = time.time() - start_time
-            discovered_message = final_state.get_discovered_message_as_string()
-            print(f"\n🎉 SUCCESS after {attempts} attempts in {total_time:.2f}s!")
-            print(f"⚡ Graph construction: {graph_time:.3f}s")
-            print(f"⚡ Search time: {total_time - graph_time:.2f}s")
-            print(f"📝 Discovered message: '{discovered_message}'")
-            return tokenization, discovered_message
-
-    total_time = time.time() - start_time
-    print(f"\n❌ FAILED after testing {attempts} tokenizations in {total_time:.2f}s")
-    return None, None
-
-# Convenience wrapper
-def ultra_linear_backcheck(stego_text: str,
-                           model: PreTrainedModel,
-                           tokenizer: PreTrainedTokenizer,
-                           context: str, # Accept string context
-                           device: str = 'cuda',
-                           random_seed: int = 42,
-                           get_probs_past_func=None,
-                           **kwargs) -> Tuple[Optional[List[int]], Optional[str]]:
-    """
-    Ultra-convenient wrapper using your linear O(n) approach.
-    """
-    # Convert context string to tensor
-    context_tensor = tokenizer.encode(context, return_tensors='pt').to(device)
-
-    return linear_blind_backcheck(
-        stego_text=stego_text,
-        model=model,
-        tokenizer=tokenizer,
-        context=context_tensor,
-        device=device,
-        random_seed=random_seed,
-        get_probs_past_func=get_probs_past_func,
-        **kwargs
-    )
-
-@torch.no_grad()
-def decode_spar(model, generated_ids, context, device='cuda', block_size=32, top_p=1.0, random_seed=42):
-    context = torch.tensor(context[-1022:], device=device, dtype=torch.long)
-    random.seed(random_seed)
-
-    message = []
-    n_m = 2 ** block_size
-    k_m = 0
-    n_m_arr = []
-    temp0_arr = []
-    temp1_arr = []
-    past = None
-    prev = context
-
-    for tokenID in generated_ids:
-        r = random.random()
-        probs, indices, past = get_probs_past(model=model,
-                                              prev=prev,
-                                              past=past,
-                                              device=device,
-                                              top_p=top_p)
-        probs = probs.to(torch.float64)
-        cumulative_probs = probs.cumsum(0)
-        token_index = torch.where(indices == tokenID)[0]
-
-        SE = get_lower_upper_bound(cumulative_probs, token_index)
-        temp0 = ceil((SE[0] - r) * n_m)
-        temp1 = ceil((SE[1] - r) * n_m)
-        n_m = temp1 - temp0
-
-        temp0_arr.append(temp0)
-        temp1_arr.append(temp1)
-        n_m_arr.append(n_m)
-
-        if n_m == 1:
-            count = len(temp0_arr) - 2
-            k_m = temp0_arr[count + 1]
-            while count >= 0:
-                n_m_new = n_m_arr[count]
-                k_m = temp0_arr[count] + ((k_m + n_m_new) % n_m_new)
-                count -= 1
-
-            k_m = (k_m + 2 ** block_size) % 2 ** block_size
-            temp0_arr = []
-            temp1_arr = []
-            n_m_arr = []
-            message.append(dec2bin(k_m, block_size))
-            n_m = 2 ** block_size
-
-        prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
-
-    return message
 
 def full_decode(context, messages, random_seed):
     """

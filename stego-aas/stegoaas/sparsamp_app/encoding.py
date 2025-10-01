@@ -13,11 +13,13 @@ from .sparsamp_utils import func_mrn, get_lower_upper_bound, get_probs_past, MOD
 
 def full_encode(context, message_text, random_seed):
     message_bits = process_message_with_checkpoints(message_text, 32)
+    print(message_bits)
     final_messages = []
     i = 0
     tokenized_context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
     rng = np.random.default_rng(random_seed)
     to_decode = message_bits
+    all_generated_ids = []
     while i < len(message_bits):
         random_number = rng.integers(low=10 ** 15, high=10 ** 16)
         min_tokens = min(100, len(to_decode) // 7)
@@ -25,10 +27,12 @@ def full_encode(context, message_text, random_seed):
                                                       min_token_length=min_tokens, max_token_length=1000,
                                                       random_seed=random_number, device=DEVICE)
         encoded_message = "".join(encoded_messages)
+        all_generated_ids.extend(generated_ids)
         m = TOKENIZER.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
         final_messages.append(m)
         i += len(encoded_message)
         to_decode = to_decode[len(encoded_message):]
+    print(all_generated_ids)
     return final_messages
 
 
@@ -95,7 +99,10 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
                 raise Exception("This context seems have problem.let's skip it.")
         generated_ids.append(tokenID.item())
         prev = torch.tensor([tokenID], device=device, dtype=torch.long).unsqueeze(0)
-
+    print("Successfully encoded message block!")
+    print("Generated ids:", generated_ids)
+    print("Encoded message:", encoded_message)
+    print("random seed:", random_seed)
     return generated_ids, encoded_message
 
 def process_message_with_checkpoints(
