@@ -2,25 +2,17 @@
 from __future__ import annotations
 
 import copy
-
 import random
-
 from bisect import bisect_left, bisect_right
-
+from dataclasses import dataclass, field
 from math import ceil
-
-from typing import List, Dict, Optional, Tuple, Iterable
+from typing import List, Dict, Optional, Tuple
 
 import numpy as np
-
 import torch
+from transformers import PreTrainedModel
 
-from transformers import PreTrainedModel, PreTrainedTokenizer
-
-from .sparsamp_utils import TOKENIZER, MODEL, DEVICE, get_probs_past, dec2bin, get_lower_upper_bound, \
-    utf8_binary_to_string
-
-from dataclasses import dataclass, field
+from .sparsamp_utils import TOKENIZER, MODEL, DEVICE, get_probs_past, dec2bin, get_lower_upper_bound
 
 # Type definitions
 Edge = Tuple[int, int] # (next_char_index, token_id)
@@ -66,6 +58,7 @@ class BackCheckVerificationResult:
     visited_tokens: List[int] = field(default_factory=list)
     success: bool = False
     last_verified_state: BlindDecodingState = None
+    backcheck_count: int = -1
 
 class BackCheckTree:
     """BackCheck tree for token ambiguity resolution"""
@@ -238,16 +231,15 @@ class BackCheckDecoder:
                 token_sequence=token_path,
                 last_verified_state=last_verified_state,
                 model=self.model,
-                context=self.context,
                 device=self.device,
                 block_size=self.decode_params.get('block_size', 32),
                 top_p=self.decode_params.get('top_p', 1.0),
-                random_seed=self.decode_params.get('random_seed', 42),
                 blocks_per_interval=self.decode_params.get('blocks_per_interval', 4)
             )
             decoded_message = final_state.get_discovered_message_as_string()
             correct_tokens = token_path[:final_state.token_count] if final_state.token_count >= 0 else []
             visited_tokens = token_path[:last_idx] if last_idx >= 0 else []
+            backcheck_count = final_state.backcheck_count
 
 
             return BackCheckVerificationResult(
@@ -255,6 +247,7 @@ class BackCheckDecoder:
                 correct_tokens=correct_tokens,
                 visited_tokens=visited_tokens,
                 success=success,
+                backcheck_count=backcheck_count,
                 last_verified_state=final_state)
 
 
@@ -262,10 +255,10 @@ class BackCheckDecoder:
             print(f"Error in BackCheck path verification: {e}")
             raise e
 
-    def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = 100) -> Optional[Tuple[List[int], str]]:
+    def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = 100) -> Tuple[List[int], str, int]:
         """Main BackCheck algorithm implementation"""
         attempts = 0
-        last_verified_state = None
+        last_verified_state = init_decoding_state(context=self.context, initial_backcheck_count=self.decode_params.get('initial_backcheck_count', -1),random_seed=self.decode_params.get('random_seed', -1))
         while attempts < max_attempts:
             attempts += 1
 
@@ -285,7 +278,7 @@ class BackCheckDecoder:
 
             if result.success:
                 print(f"✅ BackCheck succeeded after {attempts} attempts!")
-                return path_tokens, result.decoded_message
+                return path_tokens, result.decoded_message, last_verified_state.backcheck_count
 
             if attempts % 10 == 0:
                 print(f"BackCheck: Attempt {attempts}, continuing search...")
@@ -384,7 +377,8 @@ class BackCheckDecoder:
         current_node.known_wrong = True
 
 
-def backcheck_decode_single_message(message: str, context: str, random_seed: int) -> str:
+def backcheck_decode_single_message(message: str, context: str, random_seed: int, backcheck_count: int) -> Tuple[
+    str, int]:
     """
     Decode a single message using BackCheck algorithm
     """
@@ -401,6 +395,7 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
             'top_p': 1.0,
             'random_seed': random_seed,
             'blocks_per_interval': 4,
+            'initial_backcheck_count': backcheck_count,
             'get_probs_past_func': get_probs_past
         }
 
@@ -412,9 +407,9 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
         result = decoder.backcheck_decode_tree(tree, max_attempts=50)
 
         if result:
-            tokenization, decoded_message = result
+            tokenization, decoded_message, backcheck_count = result
             print(f"✅ BackCheck successful: '{decoded_message}'")
-            return decoded_message.rstrip("\x00")
+            return decoded_message, backcheck_count
         else:
             raise ValueError("⚠️ BackCheck failed, falling back to linear approach")
     except Exception as e:
@@ -431,7 +426,7 @@ class BlindDecodingState:
         self.random_state_data = None
         self.discovered_message_bits = ""
         self.decoded_blocks = []
-        self.completed_blocks = 0
+        self.backcheck_count = -1
         self.prev = None
         self.past = None
         self.token_count = 0
@@ -446,7 +441,6 @@ class BlindDecodingState:
 
     def add_discovered_block(self, block_bits: str, is_checkpoint: bool):
         self.decoded_blocks.append(block_bits)
-        self.completed_blocks += 1
         self.discovered_message_bits += block_bits
 
     def get_discovered_message_as_string(self) -> str:
@@ -534,34 +528,21 @@ def build_token_graph(text, tokenizer):
 
 @torch.no_grad()
 def try_blind_decoding(token_sequence: List[int],
-                       last_verified_state: Optional[BlindDecodingState],
+                       last_verified_state: BlindDecodingState,
                        model: PreTrainedModel,
-                       context: torch.Tensor,
                        device: str = 'cuda',
                        block_size: int = 32,
                        top_p: float = 1.0,
-                       random_seed: int = 42,
-                       blocks_per_interval: int = 4) -> Tuple[bool, Optional[BlindDecodingState], int]:
+                       blocks_per_interval: int = 4) -> Tuple[bool, BlindDecodingState, int]:
     """Try to decode a token sequence without knowing the original message"""
     n_m = 2 ** block_size
-    k_m = 0
     n_m_arr = []
     temp0_arr = []
     temp1_arr = []
-    current_interval_counter = 0
-    start_token_idx = 0
-    if last_verified_state is None:
-        state = BlindDecodingState()
-        state.past = None
-        state.prev = context
-        random.seed(random_seed)
-        state.save_random_state()
-        state.token_count = 0
-        state.prev = context
-    else:
-        state = copy.deepcopy(last_verified_state)
-        state.restore_random_state()
-        start_token_idx = len(state.current_tokens)
+
+    state = copy.deepcopy(last_verified_state)
+    state.restore_random_state()
+    start_token_idx = len(state.current_tokens)
     try:
         for token_idx in range(start_token_idx, len(token_sequence)):
             tokenID = token_sequence[token_idx]
@@ -593,8 +574,8 @@ def try_blind_decoding(token_sequence: List[int],
 
 
             if n_m == 1:
-                current_interval_counter += 1
-                is_checkpoint = (current_interval_counter == blocks_per_interval)
+                state.backcheck_count += 1
+                is_checkpoint = (state.backcheck_count == blocks_per_interval)
 
                 count = len(temp0_arr) - 2
                 k_m = temp0_arr[count+1]
@@ -611,7 +592,7 @@ def try_blind_decoding(token_sequence: List[int],
                     if not decoded_block_bits.endswith('00000000'):
                         return False, last_verified_state, state.token_count
                     state.add_discovered_block(decoded_block_bits, is_checkpoint=True)
-                    state.current_interval_counter = 0
+                    state.backcheck_count = 0
                     state.save_random_state()
                     last_verified_state = copy.deepcopy(state)
                 else:
@@ -633,6 +614,18 @@ def try_blind_decoding(token_sequence: List[int],
         return False, state, start_token_idx - 1
 
 
+def init_decoding_state(context, initial_backcheck_count, random_seed):
+    state = BlindDecodingState()
+    state.past = None
+    state.prev = context
+    random.seed(random_seed)
+    state.save_random_state()
+    state.token_count = 0
+    state.backcheck_count = initial_backcheck_count
+    state.prev = context
+    return state
+
+
 def full_decode(context, messages, random_seed):
     """
     Main entry point for decoding - now with BackCheck integration
@@ -640,6 +633,7 @@ def full_decode(context, messages, random_seed):
     Preserves the original function signature while adding BackCheck functionality
     """
     final_messages = []
+    backcheck_count = 0
     context_tokens = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
     rng = np.random.default_rng(random_seed)
 
@@ -648,7 +642,7 @@ def full_decode(context, messages, random_seed):
         random_number = rng.integers(low=10**15, high=10**16)
 
         # Try BackCheck decoding first
-        decoded_message = backcheck_decode_single_message(message, context, random_number)
+        decoded_message, backcheck_count = backcheck_decode_single_message(message, context, random_number, backcheck_count)
 
         if decoded_message:
             final_messages.append(decoded_message)
