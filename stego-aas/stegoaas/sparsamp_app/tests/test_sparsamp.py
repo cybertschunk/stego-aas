@@ -22,6 +22,14 @@ class SparSampTest(TestCase):
         seed = 12345
         messages = full_encode(context, text, seed)
         decoded_text = full_decode(context, messages, seed)
+        self.assertEqual(text, decoded_text)
+
+    def test_firefox_text(self):
+        context= "Steganography is the practice of hiding messages within other non-secret text or data."
+        text = "Firefox is a free, open-source web browser developed by Mozilla Foundation. Released in 2004, it challenged Internet Explorer's monopoly and continues to promote web standards and user privacy. Firefox offers robust security features including Enhanced Tracking Protection, which blocks third-party cookies and trackers by default. The browser supports extensive customization through add-ons and themes, allowing users to personalize their browsing experience. Available across Windows, macOS, Linux, Android, and iOS platforms, Firefox synchronizes bookmarks, passwords, and history between devices. Despite Chrome's market dominance, Firefox remains a vital alternative for users prioritizing privacy, open-source values, and control over their online data protection."
+        seed = 12345
+        messages = full_encode(context, text, seed)
+        decoded_text = full_decode(context, messages, seed)
         self.assertEqual(decoded_text, text)
 
     def test_decoding_with_ta(self):

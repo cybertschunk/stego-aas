@@ -76,7 +76,7 @@ class BackCheckTree:
     def _build_initial_tree(self):
         """Build initial tree with default tokenization as greedy path"""
         # Get default (greedy) tokenization
-        greedy_tokens = self.tokenizer.encode(self.stego_text, add_special_tokens=False)
+        greedy_tokens = self.tokenizer.encode(self.stego_text)
 
         # Create nodes for default tokenization path
         current_pos = 0
@@ -86,7 +86,7 @@ class BackCheckTree:
 
     def _build_greedy_path(self, current_node, current_pos, greedy_tokens):
         for i, token_id in enumerate(greedy_tokens):
-            token_text = self.tokenizer.decode([token_id], clean_up_tokenization_spaces=True)
+            token_text = self.tokenizer.decode([token_id])
             end_pos = current_pos + len(token_text)
 
             # Create node for this token
@@ -170,7 +170,7 @@ class BackCheckTree:
 
         for tid in range(vocab_limit):
             try:
-                s = self.tokenizer.decode([tid], clean_up_tokenization_spaces=True)
+                s = self.tokenizer.decode([tid])
                 if s and len(s) <= len(remaining_text):
                     if all(ch in allowed or ch.isspace() for ch in s):
                         tups.append((s, tid))
@@ -193,7 +193,7 @@ class BackCheckTree:
                 prev=context_tokens,
                 past=None,
                 device=DEVICE,
-                top_p=1.0
+                top_p=0.95
             )
 
             # Extract probabilities for specific token_ids
@@ -233,7 +233,7 @@ class BackCheckDecoder:
                 model=self.model,
                 device=self.device,
                 block_size=self.decode_params.get('block_size', 32),
-                top_p=self.decode_params.get('top_p', 1.0),
+                top_p=self.decode_params.get('top_p', 0.95),
                 blocks_per_interval=self.decode_params.get('blocks_per_interval', 4)
             )
             decoded_message = final_state.get_discovered_message_as_string()
@@ -327,7 +327,7 @@ class BackCheckDecoder:
             current_node = current_node.parent
 
         print(solution)
-        print(TOKENIZER.decode(solution, clean_up_tokenization_spaces=True))
+        print(TOKENIZER.decode(solution))
         return solution
 
 
@@ -392,7 +392,7 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
         # Set up decoder parameters
         decoder_params = {
             'block_size': 32,
-            'top_p': 1.0,
+            'top_p': 0.95,
             'random_seed': random_seed,
             'blocks_per_interval': 4,
             'initial_backcheck_count': backcheck_count,
@@ -404,7 +404,7 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
         decoder = BackCheckDecoder(MODEL, TOKENIZER, context_tensor, DEVICE, **decoder_params)
 
         # Try BackCheck decoding
-        result = decoder.backcheck_decode_tree(tree, max_attempts=50)
+        result = decoder.backcheck_decode_tree(tree, max_attempts=500)
 
         if result:
             tokenization, decoded_message, backcheck_count = result
@@ -473,7 +473,7 @@ def _prepare_tokens(tokenizer, text):
     allowed = set(text) # every Unicode character in the text
     tups = [] # (decoded_string, token_id)
     for tid in range(tokenizer.vocab_size):
-        s = tokenizer.decode([tid], clean_up_tokenization_spaces=True)
+        s = tokenizer.decode([tid])
         if s and all(ch in allowed or ch.isspace() for ch in s):
             tups.append((s, tid))
     return sorted(tups) # lexicographic order
@@ -532,7 +532,7 @@ def try_blind_decoding(token_sequence: List[int],
                        model: PreTrainedModel,
                        device: str = 'cuda',
                        block_size: int = 32,
-                       top_p: float = 1.0,
+                       top_p: float = 0.95,
                        blocks_per_interval: int = 4) -> Tuple[bool, BlindDecodingState, int]:
     """Try to decode a token sequence without knowing the original message"""
     n_m = 2 ** block_size

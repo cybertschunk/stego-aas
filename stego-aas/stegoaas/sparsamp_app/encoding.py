@@ -22,13 +22,12 @@ def full_encode(context, message_text, random_seed):
     all_generated_ids = []
     while i < len(message_bits):
         random_number = rng.integers(low=10 ** 15, high=10 ** 16)
-        min_tokens = min(100, len(to_decode) // 7)
         generated_ids, encoded_messages = encode_spar(model=MODEL, context=tokenized_context, message_bits=to_decode,
-                                                      min_token_length=min_tokens, max_token_length=1000,
+                                                      min_token_length=100, max_token_length=1000,
                                                       random_seed=random_number, device=DEVICE)
         encoded_message = "".join(encoded_messages)
         all_generated_ids.extend(generated_ids)
-        m = TOKENIZER.decode(generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+        m = TOKENIZER.decode(generated_ids) # , skip_special_tokens=True, clean_up_tokenization_spaces=True
         final_messages.append(m)
         i += len(encoded_message)
         to_decode = to_decode[len(encoded_message):]
@@ -56,7 +55,7 @@ def encode_step(probs, n_m, k_m):
 
 @torch.no_grad()
 def encode_spar(model, context, message_bits, min_token_length, max_token_length, device='cuda', block_size=32,
-                top_p=1.0, random_seed=42):
+                top_p=0.95, random_seed=42):
     context = torch.tensor(context[-1022:], device=device, dtype=torch.long)
 
     generated_ids = []
@@ -68,9 +67,9 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
     encoded_message = []
     past = None
     prev = context
+    message_blocks = len(message_bits) // block_size
 
     while True:
-
         probs, indices, past = get_probs_past(model=model,
                                               prev=prev,
                                               past=past,
@@ -81,7 +80,7 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
         token_index, n_m, k_m = encode_step(probs=probs, n_m=n_m, k_m=k_m)
         tokenID = indices[token_index]
         token_num_generated += 1
-        if token_num_generated < min_token_length:
+        if token_num_generated < min_token_length and m_index+block_size < len(message_bits):
             if n_m == 1:
                 encoded_message.append(message_bits[m_index:m_index + block_size])
                 m_index += block_size
