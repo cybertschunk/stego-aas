@@ -489,7 +489,7 @@ def try_blind_decoding(token_sequence: List[int],
 
             probs = probs.to(torch.float64)
             cumulative_probs = probs.cumsum(0)
-
+            # TODO proper return condition instead of fail to except clause
             token_index = torch.where(indices == tokenID)[0]
             SE = get_lower_upper_bound(cumulative_probs,token_index)
             temp0 = ceil((SE[0] - r) * n_m)
