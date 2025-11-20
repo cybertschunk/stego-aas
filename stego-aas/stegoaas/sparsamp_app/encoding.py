@@ -6,28 +6,44 @@ from math import ceil
 import numpy as np
 import torch
 
-from .sparsamp_utils import func_mrn, get_lower_upper_bound, get_probs_past, MODEL, TOKENIZER, DEVICE, \
-    string_to_utf8_binary
+from .constants import (
+    BLOCK_SIZE, BLOCKS_PER_INTERVAL, MIN_TOKEN_LENGTH, MAX_TOKEN_LENGTH,
+    RANDOM_SEED_MIN, RANDOM_SEED_MAX, TOP_P, CONTEXT_WINDOW_SIZE
+)
+from .model_manager import get_model_manager
+from .sparsamp_utils import func_mrn, get_lower_upper_bound, get_probs_past, string_to_utf8_binary
 
 
 
 def full_encode(context, message_text, random_seed):
-    message_bits = process_message_with_checkpoints(message_text, 32)
+    """
+    Encode a message into steganographic text using SparSamp algorithm.
+
+    Args:
+        context: Initial text context for generation
+        message_text: Message to hide in the generated text
+        random_seed: Random seed for reproducible encoding
+
+    Returns:
+        List of generated text messages containing the hidden information
+    """
+    model_manager = get_model_manager()
+    message_bits = process_message_with_checkpoints(message_text, BLOCK_SIZE)
     print(message_bits)
     final_messages = []
     i = 0
-    tokenized_context = TOKENIZER.encode(context, return_tensors='pt').to(DEVICE)
+    tokenized_context = model_manager.tokenizer.encode(context, return_tensors='pt').to(model_manager.device)
     rng = np.random.default_rng(random_seed)
     to_decode = message_bits
     all_generated_ids = []
     while i < len(message_bits):
-        random_number = rng.integers(low=10 ** 15, high=10 ** 16)
-        generated_ids, encoded_messages = encode_spar(model=MODEL, context=tokenized_context, message_bits=to_decode,
-                                                      min_token_length=100, max_token_length=1000,
-                                                      random_seed=random_number, device=DEVICE)
+        random_number = rng.integers(low=RANDOM_SEED_MIN, high=RANDOM_SEED_MAX)
+        generated_ids, encoded_messages = encode_spar(model=model_manager.model, context=tokenized_context, message_bits=to_decode,
+                                                      min_token_length=MIN_TOKEN_LENGTH, max_token_length=MAX_TOKEN_LENGTH,
+                                                      random_seed=random_number, device=model_manager.device)
         encoded_message = "".join(encoded_messages)
         all_generated_ids.extend(generated_ids)
-        m = TOKENIZER.decode(generated_ids) # , skip_special_tokens=True, clean_up_tokenization_spaces=True
+        m = model_manager.tokenizer.decode(generated_ids)
         final_messages.append(m)
         i += len(encoded_message)
         to_decode = to_decode[len(encoded_message):]
@@ -54,9 +70,9 @@ def encode_step(probs, n_m, k_m):
 
 
 @torch.no_grad()
-def encode_spar(model, context, message_bits, min_token_length, max_token_length, device='cuda', block_size=32,
-                top_p=0.95, random_seed=42):
-    context = torch.tensor(context[-1022:], device=device, dtype=torch.long)
+def encode_spar(model, context, message_bits, min_token_length, max_token_length, device='cuda', block_size=BLOCK_SIZE,
+                top_p=TOP_P, random_seed=42):
+    context = torch.tensor(context[-CONTEXT_WINDOW_SIZE:], device=device, dtype=torch.long)
 
     generated_ids = []
     m_index = 0
@@ -106,14 +122,23 @@ def encode_spar(model, context, message_bits, min_token_length, max_token_length
 
 def process_message_with_checkpoints(
         message_text: str,
-        block_size: int = 32,
-        blocks_per_interval: int = 4
+        block_size: int = BLOCK_SIZE,
+        blocks_per_interval: int = BLOCKS_PER_INTERVAL
 ) -> str:
     """
-    Convert message to binary string split into blocks;
-    Every 'blocks_per_interval' blocks, the block stores only (block_size - 8) message bits,
-    reserving the last 8 bits for a checkpoint (all zeros).
-    The final block is padded to full block_size if necessary.
+    Convert message to binary string with checkpoint markers for verification during decoding.
+
+    Every 'blocks_per_interval' blocks, a checkpoint is inserted. Checkpoint blocks contain
+    (block_size - 8) message bits followed by 8 zero bits as a marker. This allows the
+    BackCheck decoding algorithm to verify tokenization matches at regular intervals.
+
+    Args:
+        message_text: Message string to convert to binary
+        block_size: Size of each block in bits (default: BLOCK_SIZE)
+        blocks_per_interval: Number of blocks before inserting a checkpoint (default: BLOCKS_PER_INTERVAL)
+
+    Returns:
+        Binary string containing message bits with checkpoint markers inserted
     """
     message_bits = string_to_utf8_binary(message_text)
     blocks = []
