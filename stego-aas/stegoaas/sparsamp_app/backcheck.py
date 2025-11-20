@@ -7,10 +7,12 @@ tokenizations of the same text can lead to different decoded messages.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple
 
 import torch
+from transformers import PreTrainedTokenizer, PreTrainedModel
 
 from .constants import (
     BLOCK_SIZE, BLOCKS_PER_INTERVAL, TOP_P, MAX_BACKCHECK_ATTEMPTS,
@@ -18,6 +20,8 @@ from .constants import (
 )
 from .model_manager import get_model_manager
 from .sparsamp_utils import get_probs_past
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,18 +72,18 @@ class BackCheckVerificationResult:
 class BackCheckTree:
     """BackCheck tree for token ambiguity resolution"""
 
-    def __init__(self, stego_text: str, tokenizer, model, device):
+    def __init__(self, stego_text: str, tokenizer: PreTrainedTokenizer, model: PreTrainedModel, device: str):
         self.stego_text = stego_text
         self.tokenizer = tokenizer
         self.model = model
         self.device = device
         self.root = BackCheckNode()  # Empty root node
-        self.all_nodes = []  # Keep track of all nodes
+        self.all_nodes: List[BackCheckNode] = []  # Keep track of all nodes
 
         # Build the initial tree with default tokenization
         self._build_initial_tree()
 
-    def _build_initial_tree(self):
+    def _build_initial_tree(self) -> None:
         """Build initial tree with default tokenization as greedy path"""
         # Get default (greedy) tokenization
         greedy_tokens = self.tokenizer.encode(self.stego_text)
@@ -89,7 +93,7 @@ class BackCheckTree:
 
         self._build_greedy_path(current_node, greedy_tokens)
 
-    def _build_greedy_path(self, current_node, greedy_tokens):
+    def _build_greedy_path(self, current_node: BackCheckNode, greedy_tokens: List[int]) -> None:
         for i, token_id in enumerate(greedy_tokens):
 
             # Create node for this token
@@ -103,7 +107,7 @@ class BackCheckTree:
             self.all_nodes.append(node)
             current_node = node
 
-    def explore_node(self, node: BackCheckNode):
+    def explore_node(self, node: BackCheckNode) -> None:
         """
         Explore function: determine all possible tokens that could follow after this node
         and calculate their probabilities using the model
@@ -120,8 +124,8 @@ class BackCheckTree:
         greedy_tokens = self.tokenizer.encode(remaining_text, add_special_tokens=False)
         self._build_greedy_path(node, greedy_tokens)
 
-    def explore_model_based(self, node: BackCheckNode, remaining_text: str):
-
+    def explore_model_based(self, node: BackCheckNode, remaining_text: str) -> None:
+        """Explore node using model-based probability calculations"""
         # Find all possible tokens that could continue from this position
         possible_continuations = []
         # Use efficient approach to find valid continuations
@@ -202,13 +206,13 @@ class BackCheckTree:
             return result_probs
 
         except Exception as e:
-            print(f"Error getting token probabilities: {e}")
+            logger.error(f"Error getting token probabilities: {e}")
             # Fallback to uniform probabilities
             prob_per_token = 1.0 / len(token_ids) if token_ids else 0.0
             return {token_id: prob_per_token for token_id in token_ids}
 
 
-def _update_tree_from_verification(tree: BackCheckTree, result: BackCheckVerificationResult):
+def _update_tree_from_verification(tree: BackCheckTree, result: BackCheckVerificationResult) -> None:
     """Update tree nodes based on verification results"""
     current_node = tree.root
     i = 0
@@ -239,7 +243,7 @@ def _update_tree_from_verification(tree: BackCheckTree, result: BackCheckVerific
     current_node.known_wrong = True
 
 
-def _find_path_through_tree(tree: BackCheckTree, tokenizer) -> Optional[List[int]]:
+def _find_path_through_tree(tree: BackCheckTree, tokenizer: PreTrainedTokenizer) -> Optional[List[int]]:
     """Find path through tree following priority rules"""
 
     solution = []
@@ -286,7 +290,7 @@ def _find_path_through_tree(tree: BackCheckTree, tokenizer) -> Optional[List[int
 class BackCheckDecoder:
     """BackCheck decoder that integrates with existing decoding functions"""
 
-    def __init__(self, model, tokenizer, context, device, **decode_params):
+    def __init__(self, model: PreTrainedModel, tokenizer: PreTrainedTokenizer, context: torch.Tensor, device: str, **decode_params):
         self.model = model
         self.tokenizer = tokenizer
         self.context = context
@@ -314,8 +318,8 @@ class BackCheckDecoder:
 
             visited_tokens = token_path[:last_idx] if last_idx >= 0 else []
             backcheck_count = final_state.backcheck_count
-            print("Correct tokens:", correct_tokens)
-            print("Visited tokens:", visited_tokens)
+            logger.debug(f"Correct tokens: {correct_tokens}")
+            logger.debug(f"Visited tokens: {visited_tokens}")
 
             return BackCheckVerificationResult(
                 decoded_message=decoded_message,
@@ -326,10 +330,10 @@ class BackCheckDecoder:
                 last_verified_state=final_state)
 
         except Exception as e:
-            print(f"Error in BackCheck path verification: {e}")
+            logger.error(f"Error in BackCheck path verification: {e}")
             raise e
 
-    def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = MAX_BACKCHECK_ATTEMPTS) -> Tuple[List[int], str, int]:
+    def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = MAX_BACKCHECK_ATTEMPTS) -> Optional[Tuple[List[int], str, int]]:
         """Main BackCheck algorithm implementation"""
         # Import here to avoid circular imports
         from .decoding import init_decoding_state
@@ -343,7 +347,7 @@ class BackCheckDecoder:
             path_tokens = _find_path_through_tree(tree, self.tokenizer)
 
             if not path_tokens:
-                print(f"BackCheck: No valid path found after {attempts} attempts")
+                logger.warning(f"BackCheck: No valid path found after {attempts} attempts")
                 break
 
             # Verify the path using existing decoding
@@ -354,11 +358,11 @@ class BackCheckDecoder:
             _update_tree_from_verification(tree, result)
 
             if result.success:
-                print(f"SUCCESS: BackCheck succeeded after {attempts} attempts!")
+                logger.info(f"BackCheck succeeded after {attempts} attempts")
                 return path_tokens, result.decoded_message, last_verified_state.backcheck_count
 
             if attempts % 10 == 0:
-                print(f"BackCheck: Attempt {attempts}, continuing search...")
+                logger.debug(f"BackCheck: Attempt {attempts}, continuing search...")
 
         return None
 
@@ -370,7 +374,7 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
     model_manager = get_model_manager()
     try:
         # First try BackCheck approach
-        print(f" Trying BackCheck decoding for message length {len(message)}")
+        logger.info(f"Trying BackCheck decoding for message length {len(message)}")
 
         # Build BackCheck tree
         tree = BackCheckTree(message, model_manager.tokenizer, model_manager.model, model_manager.device)
@@ -394,10 +398,10 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
 
         if result:
             tokenization, decoded_message, backcheck_count = result
-            print(f"SUCCESS: BackCheck successful: '{decoded_message}'")
+            logger.info(f"BackCheck successful: '{decoded_message}'")
             return decoded_message, backcheck_count
         else:
             raise ValueError("WARNING: BackCheck failed, falling back to linear approach")
     except Exception as e:
-        print(f"Error in BackCheck decoding: {e}")
+        logger.error(f"Error in BackCheck decoding: {e}")
         raise e

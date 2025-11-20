@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import random
 from math import ceil
 from typing import List, Tuple
@@ -17,6 +18,8 @@ from .constants import (
 from .backcheck import backcheck_decode_single_message
 from .sparsamp_utils import get_probs_past, dec2bin, get_lower_upper_bound
 
+logger = logging.getLogger(__name__)
+
 class BlindDecodingState:
     """State for blind decoding"""
     def __init__(self):
@@ -29,14 +32,14 @@ class BlindDecodingState:
         self.token_count = 0
         self.current_tokens = []
 
-    def save_random_state(self):
+    def save_random_state(self) -> None:
         self.random_state_data = random.getstate()
 
-    def restore_random_state(self):
+    def restore_random_state(self) -> None:
         if self.random_state_data is not None:
             random.setstate(self.random_state_data)
 
-    def add_discovered_block(self, block_bits: str, is_checkpoint: bool):
+    def add_discovered_block(self, block_bits: str, is_checkpoint: bool) -> None:
         self.decoded_blocks.append(block_bits)
         self.discovered_message_bits += block_bits
 
@@ -154,12 +157,13 @@ def try_blind_decoding(token_sequence: List[int],
         return True, state, len(token_sequence) - 1
 
     except Exception as e:
-        print(f"Exception during decoding: {e}")
+        logger.error(f"Exception during decoding: {e}")
         #raise e
         return False, last_verified_state, state.token_count
 
 
-def init_decoding_state(context, initial_backcheck_count, random_seed):
+def init_decoding_state(context: torch.Tensor, initial_backcheck_count: int, random_seed: int) -> BlindDecodingState:
+    """Initialize a new decoding state with given parameters"""
     state = BlindDecodingState()
     state.past = None
     state.prev = context
@@ -182,7 +186,7 @@ def full_decode(context, messages, random_seed):
     rng = np.random.default_rng(random_seed)
 
     for i, message in enumerate(messages):
-        print(f"\n Decoding message {i+1}/{len(messages)}")
+        logger.info(f"Decoding message {i+1}/{len(messages)}")
         random_number = rng.integers(low=RANDOM_SEED_MIN, high=RANDOM_SEED_MAX)
 
         # Try BackCheck decoding first
@@ -191,7 +195,7 @@ def full_decode(context, messages, random_seed):
         if decoded_message:
             final_messages.append(decoded_message)
         else:
-            print(f"WARNING: All decoding approaches failed for message {i+1}")
+            logger.warning(f"All decoding approaches failed for message {i+1}")
             final_messages.append("")
 
     final_message = "".join(final_messages)
