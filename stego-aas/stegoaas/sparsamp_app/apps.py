@@ -6,6 +6,8 @@ class SparSampAppConfig(AppConfig):
     name = 'sparsamp_app'
 
     def ready(self):
-        from .sparsamp_utils import load_model
-        load_model()
+        from .model_manager import get_model_manager
+        # Load the model when Django starts
+        model_manager = get_model_manager()
+        model_manager.load()
 
