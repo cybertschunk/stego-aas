@@ -50,22 +50,79 @@ jobs:
         python -c "from transformers import AutoModelForCausalLM, AutoTokenizer; AutoModelForCausalLM.from_pretrained('openai-community/gpt2'); AutoTokenizer.from_pretrained('openai-community/gpt2')"
       timeout-minutes: 10
 
-    - name: Run tests
-      working-directory: ./stego-aas/stegoaas
-      run: |
-        python manage.py test sparsamp_app.tests.test_sparsamp
-      timeout-minutes: 10
-
-    - name: Run test coverage
-      working-directory: ./stego-aas/stegoaas
+    - name: Install coverage tools
       run: |
         pip install coverage
-        coverage run --source='sparsamp_app' manage.py test sparsamp_app.tests.test_sparsamp
-        coverage report
-        coverage xml
 
-    - name: Upload coverage to artifacts
+    - name: Run tests with coverage
+      working-directory: ./stego-aas/stegoaas
+      run: |
+        coverage run --source='sparsamp_app' manage.py test sparsamp_app.tests
+        coverage report -m
+        coverage json
+        coverage xml
+        coverage html
+      timeout-minutes: 10
+
+    - name: Upload coverage reports
       uses: actions/upload-artifact@v4
       with:
-        name: coverage-report
-        path: ./stego-aas/stegoaas/coverage.xml
+        name: coverage-report-${{ github.sha }}
+        path: |
+          ./stego-aas/stegoaas/coverage.xml
+          ./stego-aas/stegoaas/coverage.json
+          ./stego-aas/stegoaas/htmlcov/
+
+    - name: Generate coverage badge
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      working-directory: ./stego-aas/stegoaas
+      run: |
+        COVERAGE=$(coverage report | grep TOTAL | awk '{print $4}' | sed 's/%//')
+        echo "COVERAGE=$COVERAGE" >> $GITHUB_ENV
+        echo "Coverage: $COVERAGE%"
+
+    - name: Get base branch coverage (for PR only)
+      if: github.event_name == 'pull_request'
+      run: |
+        # Checkout base branch
+        git fetch origin ${{ github.base_ref }}
+        git checkout origin/${{ github.base_ref }}
+
+        # Install dependencies and run coverage on base branch
+        cd ./stego-aas/stegoaas
+        python -m pip install -q coverage
+        coverage run --source='sparsamp_app' manage.py test sparsamp_app.tests 2>/dev/null || true
+        coverage json -o coverage-base.json
+
+        # Return to PR branch
+        git checkout ${{ github.sha }}
+
+    - name: Compare coverage (for PR only)
+      if: github.event_name == 'pull_request'
+      working-directory: ./stego-aas/stegoaas
+      run: |
+        if [ -f coverage-base.json ] && [ -f coverage.json ]; then
+          python ../../.github/scripts/compare_coverage.py coverage-base.json coverage.json > coverage-report.md
+          cat coverage-report.md
+          echo "COVERAGE_REPORT<<EOF" >> $GITHUB_ENV
+          cat coverage-report.md >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+        else
+          echo "Coverage comparison skipped - base coverage not available"
+        fi
+
+    - name: Comment PR with coverage comparison
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const fs = require('fs');
+          const coverageReport = fs.readFileSync('./stego-aas/stegoaas/coverage-report.md', 'utf8');
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: coverageReport
+          });

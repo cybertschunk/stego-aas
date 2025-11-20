@@ -17,7 +17,7 @@ class SparsampEncodeView(APIView):
             requested_text = serializer.validated_data['plaintext']
             requested_context = serializer.validated_data['context']
             requested_seed = serializer.validated_data['random_seed']
-            requested_text = string_to_utf8_binary(requested_text)
+            # full_encode handles UTF-8 binary conversion internally
             messages = full_encode(requested_context, requested_text, requested_seed)
             serializer = MessagesSerializer({"messages": messages})
             return Response(serializer.data)
@@ -32,7 +32,21 @@ class SparsampDecodeView(APIView):
             messages = serializer.validated_data['messages']
             requested_context = serializer.validated_data['context']
             requested_seed = serializer.validated_data['random_seed']
-            decoded_text = full_decode(context=requested_context, messages=messages, random_seed=requested_seed)
-            serializer = MessageSerializer({"message": decoded_text})
-            return Response(serializer.data)
+
+            # Validate messages list is not empty
+            if not messages:
+                return Response(
+                    {"messages": ["This list may not be empty."]},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                decoded_text = full_decode(context=requested_context, messages=messages, random_seed=requested_seed)
+                serializer = MessageSerializer({"message": decoded_text})
+                return Response(serializer.data)
+            except Exception as e:
+                return Response(
+                    {"error": f"Decoding failed: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
