@@ -186,16 +186,8 @@ class BackCheckTree:
                 top_p=0.95
             )
 
-            # Ensure probs and indices are torch tensors (get_probs_past may return lists)
-            if not isinstance(probs, torch.Tensor): # TODO just else
-                probs = torch.tensor(probs, device=DEVICE, dtype=torch.float32)
-            else:
-                probs = probs.to(torch.float32).to(DEVICE)
-
-            if not isinstance(indices, torch.Tensor): # TODO just else
-                indices = torch.tensor(indices, device=DEVICE, dtype=torch.long)
-            else:
-                indices = indices.to(torch.long).to(DEVICE)
+            probs = probs.to(torch.float32).to(DEVICE)
+            indices = indices.to(torch.long).to(DEVICE)
 
             # Extract probabilities for specific token_ids
             result_probs = {}
@@ -289,7 +281,6 @@ def _find_path_through_tree(tree: BackCheckTree) -> Optional[List[int]]:
         current_node = current_node.parent
 
 
-    print(solution)
     return solution
 
 
@@ -489,8 +480,13 @@ def try_blind_decoding(token_sequence: List[int],
 
             probs = probs.to(torch.float64)
             cumulative_probs = probs.cumsum(0)
-            # TODO proper return condition instead of fail to except clause
-            token_index = torch.where(indices == tokenID)[0]
+            matches = (indices == tokenID).nonzero(as_tuple=True)[0]
+            if matches.numel() == 0:
+                # Kein Token-Index gefunden — Abbruch mit fehlerhaftem Ergebnis
+                return False, last_verified_state, state.token_count
+
+            # Verwende den ersten gefundenen Index als Integer
+            token_index = int(matches[0].item())
             SE = get_lower_upper_bound(cumulative_probs,token_index)
             temp0 = ceil((SE[0] - r) * n_m)
             temp1 = ceil((SE[1] - r) * n_m)
