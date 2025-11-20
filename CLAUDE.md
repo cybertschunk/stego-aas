@@ -298,3 +298,4 @@ Test with various contexts and seeds to ensure robustness.
 - `sparsamp_app/decoding.py:452-544` - Blind decoding verification
 - `sparsamp_app/token_graph.py:34-55` - Token graph construction
 - `stegoaas/settings.py:73` - SparSamp context string setting
+- always run test_short_text test after a change to verify integrity. After bigger changes verify with test_multiple_texts. Both tests are located in test_sparsamp.py
