@@ -7,6 +7,7 @@
 
 import torch
 import torch.nn.functional as F
+from transformers import DynamicCache
 
 from .constants import CONTEXT_WINDOW_SIZE
 
@@ -50,19 +51,23 @@ def limit_past(past):
     Limit the past key-value cache to the maximum context window size.
 
     Args:
-        past: Past key-value cache from the transformer model
+        past: DynamicCache object from the transformer model
 
     Returns:
-        Truncated past cache limited to CONTEXT_WINDOW_SIZE
+        Truncated DynamicCache limited to CONTEXT_WINDOW_SIZE
     """
     if past is None:
         return None
-    past = list(past)
-    for i in range(len(past)):
-        past[i] = list(past[i])
-        for j in range(len(past[i])):
-            past[i][j] = past[i][j][:, :, -CONTEXT_WINDOW_SIZE:]
-    return past
+
+    # Convert to legacy format for truncation, then convert back
+    legacy_past = past.to_legacy_cache()
+    legacy_past = list(legacy_past)
+    for i in range(len(legacy_past)):
+        legacy_past[i] = list(legacy_past[i])
+        for j in range(len(legacy_past[i])):
+            legacy_past[i][j] = legacy_past[i][j][:, :, -CONTEXT_WINDOW_SIZE:]
+
+    return DynamicCache.from_legacy_cache(legacy_past)
 
 
 def get_probs_past(model,

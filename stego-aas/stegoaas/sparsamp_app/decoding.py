@@ -167,7 +167,7 @@ def init_decoding_state(context: torch.Tensor, initial_backcheck_count: int, ran
     state = BlindDecodingState()
     state.past = None
     state.prev = context
-    random.seed(random_seed)
+    random.seed(int(random_seed))  # Convert to Python int for Python 3.13 compatibility
     state.save_random_state()
     state.token_count = 0
     state.backcheck_count = initial_backcheck_count

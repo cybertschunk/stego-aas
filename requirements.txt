@@ -1,15 +1,18 @@
 # Django and REST Framework
-Django==4.2.23
-djangorestframework==3.15.2
+# Django 5.1+ required for Python 3.13 support
+Django>=5.1.0,<6.0
+djangorestframework>=3.15.2,<4.0
 
-# PyTorch (CPU-only version for Python 3.8)
-torch==2.0.1
+# PyTorch (CPU-only version)
+# PyTorch 2.6+ required for Python 3.13 support
+torch>=2.6.0,<3.0
 
 # Transformers for GPT-2 model
-transformers==4.35.2
+transformers>=4.46.0,<5.0
 
 # Numerical computing
-numpy==1.24.4
+# NumPy 2.1+ required for Python 3.13 support
+numpy>=2.1.0,<3.0
 
 # Additional dependencies
-requests==2.32.3
+requests>=2.32.3,<3.0

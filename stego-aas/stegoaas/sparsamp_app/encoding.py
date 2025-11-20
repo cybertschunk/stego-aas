@@ -123,7 +123,7 @@ def encode_spar(
         RuntimeError: If encoding exceeds maximum token length
     """
     context = context[-CONTEXT_WINDOW_SIZE:].clone().detach().to(device=device, dtype=torch.long)
-    random.seed(random_seed)
+    random.seed(int(random_seed))  # Convert to Python int for Python 3.13 compatibility
 
     generated_ids = []
     encoded_message = []

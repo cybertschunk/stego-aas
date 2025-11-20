@@ -118,7 +118,7 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 
 ### Prerequisites
 
-- Python 3.8
+- Python 3.13 or higher
 - pip (Python package manager)
 - 4GB+ RAM (for GPT-2 model)
 
