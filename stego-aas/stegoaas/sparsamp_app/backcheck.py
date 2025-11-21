@@ -173,7 +173,7 @@ class BackCheckTree:
             except:
                 continue
 
-        return sorted(tups)
+        return tups
 
     def _get_token_probabilities_from_model(self, context_tokens, token_ids: List[int]) -> Dict[int, float]:
         """Get probabilities for specific tokens given context using model"""

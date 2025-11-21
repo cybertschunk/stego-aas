@@ -163,7 +163,10 @@ The same `random_seed` MUST be used for encoding and decoding. The random number
 - Uses `openai-community/gpt2` model from HuggingFace
 - Top-p sampling: 0.95 (filters low-probability tokens)
 - Context truncation: Last 1022 tokens via `limit_past()`
-- Device: Currently CPU (`torch.device("cpu")`)
+- Device: Auto-detected (GPU if available, falls back to CPU)
+  - See `GPU_SUPPORT.md` for details on enabling GPU acceleration
+  - Currently running on CPU due to Python 3.13 GPU library limitations
+  - Code is GPU-ready and will automatically use GPU when compatible libraries are installed
 
 ### Checkpoint System
 
