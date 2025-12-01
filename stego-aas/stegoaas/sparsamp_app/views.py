@@ -17,7 +17,6 @@ class SparsampEncodeView(APIView):
             requested_text = serializer.validated_data['plaintext']
             requested_context = serializer.validated_data['context']
             requested_seed = serializer.validated_data['random_seed']
-            requested_text = string_to_utf8_binary(requested_text)
             messages = full_encode(requested_context, requested_text, requested_seed)
             serializer = MessagesSerializer({"messages": messages})
             return Response(serializer.data)

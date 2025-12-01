@@ -9,10 +9,13 @@ class SparsampViewsTest(TestCase):
 
     def test_encode_decode_roundtrip(self):
         """Test that encoding and then decoding returns the original plaintext."""
+        context = "Once upon a time"
+        text = "attack@dawn"
+        seed = 12345
         encode_payload = {
-            "plaintext": "hello",
-            "context": "Once upon a time",
-            "random_seed": 12345
+            "plaintext": text,
+            "context": context,
+            "random_seed": seed
         }
 
         encode_response = self.client.post(
@@ -29,8 +32,8 @@ class SparsampViewsTest(TestCase):
 
         decode_payload = {
             "messages": messages,
-            "context": "Once upon a time",
-            "random_seed": 12345
+            "context": context,
+            "random_seed": seed
         }
 
         decode_response = self.client.post(
@@ -40,7 +43,7 @@ class SparsampViewsTest(TestCase):
         )
         self.assertEqual(decode_response.status_code, status.HTTP_200_OK)
         self.assertIn("message", decode_response.data)
-        self.assertEqual(decode_response.data["message"], "hello")
+        self.assertEqual(decode_response.data["message"], text)
         self.assertIn("attempts_per_message", decode_response.data)
 
     def test_encode_missing_fields(self):
