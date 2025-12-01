@@ -4,10 +4,9 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import EncodeRequestSerializer, DecodeRequestSerializer, MessagesSerializer, MessageSerializer
+from .serializers import EncodeRequestSerializer, DecodeRequestSerializer, MessagesSerializer
 from .encoding import full_encode
 from .decoding import full_decode
-from .sparsamp_utils import string_to_utf8_binary
 
 
 class SparsampEncodeView(APIView):
