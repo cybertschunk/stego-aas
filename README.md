@@ -199,7 +199,7 @@ curl -X POST http://localhost:8000/api/decode/ \
 **Response:**
 ```json
 {
-  "decoded_message": "attack@dawn",
+  "message": "attack@dawn",
   "attempts_per_message": [1]
 }
 ```
