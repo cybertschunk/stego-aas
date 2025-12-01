@@ -53,14 +53,14 @@ jobs:
     - name: Run tests
       working-directory: ./stego-aas/stegoaas
       run: |
-        python manage.py test sparsamp_app.tests.test_sparsamp
+        python manage.py test sparsamp_app.tests
       timeout-minutes: 10
 
     - name: Run test coverage
       working-directory: ./stego-aas/stegoaas
       run: |
         pip install coverage
-        coverage run --source='sparsamp_app' manage.py test sparsamp_app.tests.test_sparsamp
+        coverage run --source='sparsamp_app' manage.py test sparsamp_app.tests
         coverage report
         coverage xml
 
