@@ -392,4 +392,4 @@ For more information, visit: https://creativecommons.org/licenses/by/4.0/
 
 ---
 
-**Note**: This is research software. While SparSamp provides provable security guarantees, proper operational security requires careful consideration of implementation details, side channels, and deployment environment. Consult security professionals for production deployments.
+**Note**: This is research software. While SparSamp provides provable security guarantees, proper operational security requires careful consideration of implementation details, side channels, and deployment environment. This software is not suitable for production deployments.
