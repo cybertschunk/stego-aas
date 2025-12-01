@@ -333,8 +333,13 @@ class BackCheckDecoder:
             logger.error(f"Error in BackCheck path verification: {e}")
             raise e
 
-    def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = MAX_BACKCHECK_ATTEMPTS) -> Optional[Tuple[List[int], str, int]]:
-        """Main BackCheck algorithm implementation"""
+    def backcheck_decode_tree(self, tree: BackCheckTree, max_attempts: int = MAX_BACKCHECK_ATTEMPTS) -> Optional[Tuple[List[int], str, int, int]]:
+        """
+        Main BackCheck algorithm implementation
+
+        Returns:
+            Optional tuple of (path_tokens, decoded_message, backcheck_count, attempts) or None if failed
+        """
         # Import here to avoid circular imports
         from .decoding import init_decoding_state
 
@@ -359,7 +364,7 @@ class BackCheckDecoder:
 
             if result.success:
                 logger.info(f"BackCheck succeeded after {attempts} attempts")
-                return path_tokens, result.decoded_message, last_verified_state.backcheck_count
+                return path_tokens, result.decoded_message, last_verified_state.backcheck_count, attempts
 
             if attempts % 10 == 0:
                 logger.debug(f"BackCheck: Attempt {attempts}, continuing search...")
@@ -367,9 +372,12 @@ class BackCheckDecoder:
         return None
 
 
-def backcheck_decode_single_message(message: str, context: str, random_seed: int, backcheck_count: int) -> Tuple[str, int]:
+def backcheck_decode_single_message(message: str, context: str, random_seed: int, backcheck_count: int) -> Tuple[str, int, int]:
     """
     Decode a single message using BackCheck algorithm
+
+    Returns:
+        Tuple of (decoded_message, backcheck_count, attempts)
     """
     model_manager = get_model_manager()
     try:
@@ -397,9 +405,9 @@ def backcheck_decode_single_message(message: str, context: str, random_seed: int
         result = decoder.backcheck_decode_tree(tree, max_attempts=MAX_BACKCHECK_ATTEMPTS)
 
         if result:
-            tokenization, decoded_message, backcheck_count = result
-            logger.info(f"BackCheck successful: '{decoded_message}'")
-            return decoded_message, backcheck_count
+            tokenization, decoded_message, backcheck_count, attempts = result
+            logger.info(f"BackCheck successful: '{decoded_message}' in {attempts} attempts")
+            return decoded_message, backcheck_count, attempts
         else:
             raise ValueError("WARNING: BackCheck failed, falling back to linear approach")
     except Exception as e:

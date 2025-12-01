@@ -121,6 +121,16 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 - Python 3.13 or higher
 - pip (Python package manager)
 - 4GB+ RAM (for GPT-2 model)
+- Optional: CUDA-compatible GPU (for acceleration)
+
+### GPU Support
+
+The application automatically detects and uses GPU acceleration when available:
+- **Auto-detection**: Uses `torch.device("cuda" if torch.cuda.is_available() else "cpu")`
+- **No configuration needed**: GPU is used automatically when PyTorch detects CUDA
+- **Performance**: GPU can provide 2-10x speedup depending on hardware
+
+To enable GPU acceleration, install PyTorch with CUDA support according to your system configuration. See [PyTorch installation guide](https://pytorch.org/get-started/locally/) for details.
 
 ### Setup
 
@@ -196,7 +206,8 @@ curl -X POST http://localhost:8000/api/decode/ \
 **Response:**
 ```json
 {
-  "decoded_message": "attack@dawn"
+  "decoded_message": "attack@dawn",
+  "attempts_per_message": [1]
 }
 ```
 
@@ -230,6 +241,7 @@ Decodes a secret message from steganographic text.
 
 **Response:**
 - `decoded_message` (string): The recovered secret message
+- `attempts_per_message` (array of integers): Number of BackCheck attempts required for each message
 
 **Status Codes:**
 - `200 OK`: Decoding successful
@@ -264,6 +276,13 @@ The BackCheck algorithm addresses tokenization ambiguity:
 3. **Verification**: Tests each candidate path using blind decoding
 4. **Backtracking**: Falls back to alternatives when verification fails
 
+### Performance Tracking
+
+The decode API returns performance metrics for analysis:
+- `attempts_per_message`: Array showing BackCheck attempts needed for each message segment
+- Typically requires 1-6 attempts for successful decoding
+- Useful for analyzing decoding efficiency and checkpoint effectiveness
+
 ### Checkpoint Mechanism
 
 Every `BLOCKS_PER_INTERVAL` blocks, a checkpoint is inserted:
@@ -278,6 +297,15 @@ Every `BLOCKS_PER_INTERVAL` blocks, a checkpoint is inserted:
 cd stego-aas/stegoaas
 python manage.py test sparsamp_app
 ```
+
+### Test Coverage
+
+The test suite includes:
+- `test_short_text`: Single short message encoding/decoding
+- `test_middle_text`: Medium-length messages across multiple segments
+- `test_multiple_texts`: Comprehensive test of various message lengths
+
+All tests track BackCheck performance metrics to ensure efficient decoding.
 
 ## Project Structure
 
@@ -301,10 +329,40 @@ stego-aas/
 │           ├── settings.py
 │           ├── urls.py
 │           └── wsgi.py
+├── evaluate_backcheck_performance.py  # Performance benchmarking tool
+├── test_evaluation.py              # Quick performance test
+├── verify_device.py                # GPU/CPU verification utility
+├── GPU_SUPPORT.md                  # GPU setup and troubleshooting guide
 ├── LICENSE                         # CC BY 4.0 License
 ├── README.md                       # This file
 └── requirements.txt                # Python dependencies
 ```
+
+### Utility Scripts
+
+The project includes several utility scripts in the root directory:
+
+- **`evaluate_backcheck_performance.py`**: Comprehensive performance benchmarking tool that:
+  - Tests BackCheck algorithm with 100 different random seeds
+  - Tracks attempts, timing, and success rates
+  - Outputs detailed statistics and CSV results
+  - Useful for analyzing algorithm efficiency and optimization
+
+- **`test_evaluation.py`**: Quick performance test script:
+  - Runs a minimal test with 5 seeds
+  - Validates that performance tracking is working
+  - Useful for rapid verification during development
+
+- **`verify_device.py`**: GPU/CPU detection and verification tool:
+  - Checks CUDA availability and GPU information
+  - Verifies which device is being used by the model
+  - Helps troubleshoot GPU configuration issues
+
+- **`GPU_SUPPORT.md`**: Comprehensive guide for GPU acceleration:
+  - Explains automatic GPU detection
+  - Documents Python version compatibility with GPU libraries
+  - Provides setup instructions for different GPU types (NVIDIA, Intel)
+  - Includes troubleshooting steps
 
 ## Acknowledgments
 
