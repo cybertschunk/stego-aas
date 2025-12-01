@@ -29,7 +29,6 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 - Provides provable security guarantees through information-theoretic foundations
 - Makes hidden messages statistically undetectable
 - Uses sparse sampling techniques to efficiently encode information in token selection
-- Achieves high throughput while maintaining security properties
 
 ## Features
 
@@ -43,7 +42,6 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 
 ### Technical Features
 
-- **Provably Secure**: Based on SparSamp's information-theoretically secure protocol
 - **Modular Architecture**: Clean separation of concerns with dedicated modules for encoding, decoding, and BackCheck logic
 - **Django Integration**: Built on Django REST Framework for robust API handling
 - **Comprehensive Testing**: Full test suite covering short messages, long messages, and multiple text encoding
@@ -124,13 +122,8 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 - Optional: CUDA-compatible GPU (for acceleration)
 
 ### GPU Support
-
-The application automatically detects and uses GPU acceleration when available:
-- **Auto-detection**: Uses `torch.device("cuda" if torch.cuda.is_available() else "cpu")`
-- **No configuration needed**: GPU is used automatically when PyTorch detects CUDA
-- **Performance**: GPU can provide 2-10x speedup depending on hardware
-
-To enable GPU acceleration, install PyTorch with CUDA support according to your system configuration. See [PyTorch installation guide](https://pytorch.org/get-started/locally/) for details.
+- See **`GPU_SUPPORT.md`** for a comprehensive guide for GPU acceleration:
+- The project is GPU ready, but Python 3.13 has no GPU library support as of 11.2025. 
 
 ### Setup
 
@@ -357,12 +350,6 @@ The project includes several utility scripts in the root directory:
   - Checks CUDA availability and GPU information
   - Verifies which device is being used by the model
   - Helps troubleshoot GPU configuration issues
-
-- **`GPU_SUPPORT.md`**: Comprehensive guide for GPU acceleration:
-  - Explains automatic GPU detection
-  - Documents Python version compatibility with GPU libraries
-  - Provides setup instructions for different GPU types (NVIDIA, Intel)
-  - Includes troubleshooting steps
 
 ## Acknowledgments
 
