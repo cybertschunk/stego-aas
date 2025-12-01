@@ -33,6 +33,8 @@ class SparsampDecodeView(APIView):
             requested_context = serializer.validated_data['context']
             requested_seed = serializer.validated_data['random_seed']
             decoded_text, attempts_list = full_decode(context=requested_context, messages=messages, random_seed=requested_seed)
-            serializer = MessageSerializer({"message": decoded_text})
-            return Response(serializer.data)
+            return Response({
+                "message": decoded_text,
+                "attempts_per_message": attempts_list
+            })
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
