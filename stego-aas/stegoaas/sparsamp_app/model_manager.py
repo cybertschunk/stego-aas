@@ -5,10 +5,13 @@ This module provides a thread-safe singleton pattern for managing the language m
 tokenizer, and device used throughout the steganography application.
 """
 
+import logging
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from .constants import MODEL_NAME
+
+logger = logging.getLogger(__name__)
 
 
 class ModelManager:
@@ -51,9 +54,17 @@ class ModelManager:
 
         self._model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
         self._tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-        self._device = torch.device("cpu")
+        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Log device information
+        if torch.cuda.is_available():
+            logger.info(f"Loading model on GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            logger.info("CUDA not available. Loading model on CPU.")
+
         self._model.to(self._device)
         self._model.eval()
+        logger.info(f"Model loaded successfully on device: {self._device}")
 
     @property
     def model(self):

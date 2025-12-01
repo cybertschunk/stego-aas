@@ -4,10 +4,9 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import EncodeRequestSerializer, DecodeRequestSerializer, MessagesSerializer, MessageSerializer
+from .serializers import EncodeRequestSerializer, DecodeRequestSerializer, MessagesSerializer
 from .encoding import full_encode
 from .decoding import full_decode
-from .sparsamp_utils import string_to_utf8_binary
 
 
 class SparsampEncodeView(APIView):
@@ -17,7 +16,6 @@ class SparsampEncodeView(APIView):
             requested_text = serializer.validated_data['plaintext']
             requested_context = serializer.validated_data['context']
             requested_seed = serializer.validated_data['random_seed']
-            requested_text = string_to_utf8_binary(requested_text)
             messages = full_encode(requested_context, requested_text, requested_seed)
             serializer = MessagesSerializer({"messages": messages})
             return Response(serializer.data)
@@ -32,7 +30,9 @@ class SparsampDecodeView(APIView):
             messages = serializer.validated_data['messages']
             requested_context = serializer.validated_data['context']
             requested_seed = serializer.validated_data['random_seed']
-            decoded_text = full_decode(context=requested_context, messages=messages, random_seed=requested_seed)
-            serializer = MessageSerializer({"message": decoded_text})
-            return Response(serializer.data)
+            decoded_text, attempts_list = full_decode(context=requested_context, messages=messages, random_seed=requested_seed)
+            return Response({
+                "message": decoded_text,
+                "attempts_per_message": attempts_list
+            })
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

@@ -1,8 +1,8 @@
 from django.test import TestCase
 
-from ..encoding import full_encode
 from ..decoding import full_decode
-from ..model_manager import get_model_manager
+from ..encoding import full_encode
+
 
 class SparSampTest(TestCase):
 
@@ -11,7 +11,8 @@ class SparSampTest(TestCase):
         text = "attack@dawn"
         seed = 12345
         messages = full_encode(context, text, seed)
-        decoded_text = full_decode(context, messages, seed)
+        decoded_text, attempts_list = full_decode(context, messages, seed)
+        print(f"BackCheck attempts: {attempts_list}, Total: {sum(attempts_list)}")
         self.assertEqual(decoded_text, text)
 
     def test_multiple_texts(self):
@@ -28,6 +29,7 @@ class SparSampTest(TestCase):
             text = texts[i]
             print(f"Running test {i+1} of {len(texts)}")
             messages = full_encode(context, text[:200], seed)
-            decoded_text = full_decode(context, messages, seed)
+            decoded_text, attempts_list = full_decode(context, messages, seed)
+            print(f"  BackCheck attempts: {attempts_list}, Total: {sum(attempts_list)}")
             self.assertEqual(decoded_text, text[:200])
 

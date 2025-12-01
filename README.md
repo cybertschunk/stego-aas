@@ -29,7 +29,6 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 - Provides provable security guarantees through information-theoretic foundations
 - Makes hidden messages statistically undetectable
 - Uses sparse sampling techniques to efficiently encode information in token selection
-- Achieves high throughput while maintaining security properties
 
 ## Features
 
@@ -43,7 +42,6 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 
 ### Technical Features
 
-- **Provably Secure**: Based on SparSamp's information-theoretically secure protocol
 - **Modular Architecture**: Clean separation of concerns with dedicated modules for encoding, decoding, and BackCheck logic
 - **Django Integration**: Built on Django REST Framework for robust API handling
 - **Comprehensive Testing**: Full test suite covering short messages, long messages, and multiple text encoding
@@ -121,6 +119,11 @@ SparSamp (Sparse Sampling) is a steganographic protocol that differs from tradit
 - Python 3.13 or higher
 - pip (Python package manager)
 - 4GB+ RAM (for GPT-2 model)
+- Optional: CUDA-compatible GPU (for acceleration)
+
+### GPU Support
+- See **`GPU_SUPPORT.md`** for a comprehensive guide for GPU acceleration:
+- The project is GPU ready, but Python 3.13 has no GPU library support as of 11.2025. 
 
 ### Setup
 
@@ -196,7 +199,8 @@ curl -X POST http://localhost:8000/api/decode/ \
 **Response:**
 ```json
 {
-  "decoded_message": "attack@dawn"
+  "message": "attack@dawn",
+  "attempts_per_message": [1]
 }
 ```
 
@@ -230,6 +234,7 @@ Decodes a secret message from steganographic text.
 
 **Response:**
 - `decoded_message` (string): The recovered secret message
+- `attempts_per_message` (array of integers): Number of BackCheck attempts required for each message
 
 **Status Codes:**
 - `200 OK`: Decoding successful
@@ -264,6 +269,13 @@ The BackCheck algorithm addresses tokenization ambiguity:
 3. **Verification**: Tests each candidate path using blind decoding
 4. **Backtracking**: Falls back to alternatives when verification fails
 
+### Performance Tracking
+
+The decode API returns performance metrics for analysis:
+- `attempts_per_message`: Array showing BackCheck attempts needed for each message segment
+- Typically requires 1-6 attempts for successful decoding
+- Useful for analyzing decoding efficiency and checkpoint effectiveness
+
 ### Checkpoint Mechanism
 
 Every `BLOCKS_PER_INTERVAL` blocks, a checkpoint is inserted:
@@ -278,6 +290,21 @@ Every `BLOCKS_PER_INTERVAL` blocks, a checkpoint is inserted:
 cd stego-aas/stegoaas
 python manage.py test sparsamp_app
 ```
+
+### Test Coverage
+
+The test suite includes:
+
+**Integration Tests (`test_sparsamp.py`):**
+- `test_short_text`: Single short message encoding/decoding
+- `test_multiple_texts`: Comprehensive test of various message lengths
+
+**API Tests (`test_views.py`):**
+- `test_encode_decode_roundtrip`: Full API roundtrip verifying encode and decode endpoints work correctly
+- `test_encode_missing_fields`: Validates 400 response when required encode fields are missing
+- `test_decode_missing_fields`: Validates 400 response when required decode fields are missing
+
+All tests track BackCheck performance metrics to ensure efficient decoding.
 
 ## Project Structure
 
@@ -296,15 +323,40 @@ stego-aas/
 │       │   ├── serializers.py     # Request/response serialization
 │       │   ├── urls.py            # URL routing
 │       │   └── tests/             # Test suite
-│       │       └── test_sparsamp.py
+│       │       ├── test_sparsamp.py  # Integration tests
+│       │       └── test_views.py     # API endpoint tests
 │       └── stegoaas/              # Django project settings
 │           ├── settings.py
 │           ├── urls.py
 │           └── wsgi.py
+├── evaluate_backcheck_performance.py  # Performance benchmarking tool
+├── test_evaluation.py              # Quick performance test
+├── verify_device.py                # GPU/CPU verification utility
+├── GPU_SUPPORT.md                  # GPU setup and troubleshooting guide
 ├── LICENSE                         # CC BY 4.0 License
 ├── README.md                       # This file
 └── requirements.txt                # Python dependencies
 ```
+
+### Utility Scripts
+
+The project includes several utility scripts in the root directory:
+
+- **`evaluate_backcheck_performance.py`**: Comprehensive performance benchmarking tool that:
+  - Tests BackCheck algorithm with 100 different random seeds
+  - Tracks attempts, timing, and success rates
+  - Outputs detailed statistics and CSV results
+  - Useful for analyzing algorithm efficiency and optimization
+
+- **`test_evaluation.py`**: Quick performance test script:
+  - Runs a minimal test with 5 seeds
+  - Validates that performance tracking is working
+  - Useful for rapid verification during development
+
+- **`verify_device.py`**: GPU/CPU detection and verification tool:
+  - Checks CUDA availability and GPU information
+  - Verifies which device is being used by the model
+  - Helps troubleshoot GPU configuration issues
 
 ## Acknowledgments
 

@@ -179,9 +179,12 @@ def full_decode(context, messages, random_seed):
     """
     Main entry point for decoding - now with BackCheck integration
 
-    Preserves the original function signature while adding BackCheck functionality
+    Returns:
+        Tuple of (decoded_message, attempts_list) where attempts_list contains
+        the number of BackCheck attempts for each message
     """
     final_messages = []
+    attempts_list = []
     backcheck_count = 0
     rng = np.random.default_rng(random_seed)
 
@@ -190,13 +193,15 @@ def full_decode(context, messages, random_seed):
         random_number = rng.integers(low=RANDOM_SEED_MIN, high=RANDOM_SEED_MAX)
 
         # Try BackCheck decoding first
-        decoded_message, backcheck_count = backcheck_decode_single_message(message, context, random_number, backcheck_count)
+        decoded_message, backcheck_count, attempts = backcheck_decode_single_message(message, context, random_number, backcheck_count)
 
         if decoded_message:
             final_messages.append(decoded_message)
+            attempts_list.append(attempts)
         else:
             logger.warning(f"All decoding approaches failed for message {i+1}")
             final_messages.append("")
+            attempts_list.append(0)
 
     final_message = "".join(final_messages)
-    return final_message
+    return final_message, attempts_list

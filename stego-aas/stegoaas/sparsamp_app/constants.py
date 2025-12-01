@@ -21,4 +21,4 @@ RANDOM_SEED_MIN = 10 ** 15
 RANDOM_SEED_MAX = 10 ** 16
 
 # BackCheck Parameters
-MAX_BACKCHECK_ATTEMPTS = 10  # Max attempts for BackCheck
+MAX_BACKCHECK_ATTEMPTS = 20  # Max attempts for BackCheck

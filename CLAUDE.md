@@ -34,6 +34,7 @@ Two REST endpoints under `/sparsamp_app/api/`:
 Request/response formats defined in `serializers.py`:
 - EncodeRequestSerializer: `plaintext`, `context`, `random_seed`
 - DecodeRequestSerializer: `messages` (list), `context`, `random_seed`
+- Decode response includes `attempts_per_message` array with BackCheck performance metrics
 
 #### 2. Encoding Pipeline (`encoding.py`)
 
@@ -50,13 +51,18 @@ Key concepts:
 
 Flow: `full_decode()` → `backcheck_decode_single_message()` → `BackCheckDecoder.backcheck_decode_tree()` → `try_blind_decoding()`
 
-**BackCheck Algorithm** (lines 68-360):
+**Performance Tracking**:
+- `full_decode()` returns tuple: `(decoded_message, attempts_list)`
+- `attempts_list` contains BackCheck attempts needed for each message segment
+- Useful for analyzing decoding efficiency and checkpoint effectiveness
+
+**BackCheck Algorithm** (`backcheck.py`):
 - Builds a tree of possible tokenizations using `BackCheckTree`
-- Each node represents a token choice with attributes:
+- Each node (`BackCheckNode`) represents a token choice with attributes:
   - `greedy_correct`: Part of default tokenization
   - `likeliness`: Probability from model
   - `known_correct`/`known_wrong`: Verification results
-- **Path selection priority**:
+- **Path selection priority** (`_find_path_through_tree()`):
   1. Known correct paths
   2. Greedy (default tokenization) paths
   3. Highest probability paths
@@ -64,7 +70,7 @@ Flow: `full_decode()` → `backcheck_decode_single_message()` → `BackCheckDeco
 - Updates tree based on verification results, marks wrong paths, backtracks if needed
 - Checkpoint verification: Confirms every 4th decoded block ends with `00000000`
 
-**BlindDecodingState** (lines 405-448):
+**BlindDecodingState** (`decoding.py`):
 - Tracks decoding progress: discovered bits, random state, model past states
 - Maintains checkpoint counter (`backcheck_count`)
 - Can save/restore random state for backtracking
@@ -79,10 +85,18 @@ Helper module for tokenization analysis:
 
 Note: Token graph is built during tests but BackCheck algorithm is the primary decoding approach.
 
-#### 5. Utilities (`sparsamp_utils.py`)
+#### 5. Model Management (`model_manager.py`)
+
+Thread-safe singleton for GPT-2 model lifecycle:
+- `ModelManager`: Singleton class managing model, tokenizer, and device
+- `get_model_manager()`: Returns singleton instance
+- Automatic GPU detection: `torch.device("cuda" if torch.cuda.is_available() else "cpu")`
+- Lazy loading: Model loaded on first access
+- Thread-safe initialization using lock
+
+#### 6. Utilities (`sparsamp_utils.py`)
 
 Shared utilities adapted from SparSamp research (CC BY 4.0):
-- **Global state**: `MODEL`, `TOKENIZER`, `DEVICE` (GPT-2 model loaded via `load_model()`)
 - `get_probs_past()`: Gets token probability distribution from model with top-p sampling
 - `string_to_utf8_binary()` / `utf8_binary_to_string()`: Message encoding
 - `dec2bin()`: Integer to binary string conversion
@@ -98,8 +112,7 @@ Shared utilities adapted from SparSamp research (CC BY 4.0):
 .venv\Scripts\activate  # Windows
 source .venv/bin/activate  # Unix
 
-# Load model (required before running server)
-# Model is loaded globally in sparsamp_utils.py via load_model()
+# Model is loaded automatically on first API request via ModelManager singleton
 ```
 
 ### Running the Application
@@ -134,6 +147,7 @@ python manage.py test sparsamp_app.tests.test_sparsamp.SparSampTest.test_short_t
 
 Test files location: `sparsamp_app/tests/`
 - `test_sparsamp.py`: Integration tests for encode/decode pipeline
+- `test_views.py`: API endpoint tests for encode/decode views
 - `test_token_graph.py`: Token graph utilities tests
 
 ### Django Management
@@ -163,7 +177,10 @@ The same `random_seed` MUST be used for encoding and decoding. The random number
 - Uses `openai-community/gpt2` model from HuggingFace
 - Top-p sampling: 0.95 (filters low-probability tokens)
 - Context truncation: Last 1022 tokens via `limit_past()`
-- Device: Currently CPU (`torch.device("cpu")`)
+- Device: Auto-detected via `torch.device("cuda" if torch.cuda.is_available() else "cpu")`
+  - Automatically uses GPU when CUDA is available
+  - Falls back to CPU if CUDA is not detected
+  - No code changes needed—GPU used automatically when detected
 
 ### Checkpoint System
 
@@ -188,7 +205,25 @@ Key failure modes:
 - Checkpoint verification fails → wrong tokenization path, backtrack
 - No valid path found after max attempts (500) → raises error
 
-## Recent Code Refactorings
+## Recent Changes and Refactorings
+
+### Performance Stats Tracking (Current Branch)
+
+This branch adds performance metrics tracking to the decoding pipeline:
+
+**Changes Made**:
+- `decoding.py`: Modified `full_decode()` to return `(decoded_message, attempts_list)` tuple
+- `views.py`: Updated `SparsampDecodeView` to include `attempts_per_message` in response
+- `backcheck.py`: `backcheck_decode_single_message()` returns attempts count
+- API response now includes BackCheck performance data for analysis
+
+**Benefits**:
+- Track decoding efficiency across different messages
+- Analyze checkpoint effectiveness
+- Identify performance bottlenecks
+- Monitor BackCheck algorithm convergence
+
+### Code Refactorings
 
 The codebase has been refactored to improve maintainability and code quality. These changes maintain full backward compatibility and all tests pass.
 
@@ -281,21 +316,32 @@ Always test with multiple message lengths:
 
 Test with various contexts and seeds to ensure robustness.
 
+For API changes, run the view tests:
+```bash
+python manage.py test sparsamp_app.tests.test_views
+```
+
 ### Performance Considerations
 
-- BackCheck tree exploration can be expensive (up to 500 attempts)
-- Model inference is CPU-bound (consider GPU via `DEVICE = torch.device("cuda")`)
+- BackCheck tree exploration can be expensive (max attempts configurable via `MAX_BACKCHECK_ATTEMPTS`)
+- Model inference benefits from GPU acceleration when available
 - Token graph generation scales with text length and vocabulary size
 - Checkpoint frequency trades off message capacity vs. backtrack efficiency
+- Performance metrics are tracked and returned via `attempts_per_message` in decode responses
+- Typical BackCheck attempts: 1-6 for successful decoding
 
 ## Key Files Reference
 
-- `sparsamp_app/views.py:13-38` - API endpoints
+- `sparsamp_app/views.py:13-38` - API endpoints with performance tracking
 - `sparsamp_app/encoding.py:14-36` - Main encoding entry point
-- `sparsamp_app/encoding.py:57-105` - Core arithmetic coding
-- `sparsamp_app/decoding.py:559-583` - Main decoding entry point
-- `sparsamp_app/decoding.py:331-359` - BackCheck tree algorithm
-- `sparsamp_app/decoding.py:452-544` - Blind decoding verification
-- `sparsamp_app/token_graph.py:34-55` - Token graph construction
-- `stegoaas/settings.py:73` - SparSamp context string setting
-- always run test_short_text test after a change to verify integrity. After bigger changes verify with test_multiple_texts. Both tests are located in test_sparsamp.py
+- `sparsamp_app/decoding.py:178-207` - Main decoding entry point with attempts tracking
+- `sparsamp_app/backcheck.py:375-416` - BackCheck decode single message
+- `sparsamp_app/backcheck.py:336-372` - BackCheck tree algorithm
+- `sparsamp_app/backcheck.py:72-213` - BackCheckTree class
+- `sparsamp_app/constants.py` - Configuration parameters
+- `sparsamp_app/model_manager.py` - Singleton model management with GPU support
+- `stegoaas/settings.py` - Django settings including SPARSAMP_CONTEXT_STRING
+- Always run `test_short_text` after changes to verify integrity
+- Run `test_multiple_texts` after bigger changes for comprehensive validation
+- Integration tests located in `sparsamp_app/tests/test_sparsamp.py`
+- API endpoint tests located in `sparsamp_app/tests/test_views.py`
