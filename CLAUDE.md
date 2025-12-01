@@ -147,6 +147,7 @@ python manage.py test sparsamp_app.tests.test_sparsamp.SparSampTest.test_short_t
 
 Test files location: `sparsamp_app/tests/`
 - `test_sparsamp.py`: Integration tests for encode/decode pipeline
+- `test_views.py`: API endpoint tests for encode/decode views
 - `test_token_graph.py`: Token graph utilities tests
 
 ### Django Management
@@ -315,6 +316,11 @@ Always test with multiple message lengths:
 
 Test with various contexts and seeds to ensure robustness.
 
+For API changes, run the view tests:
+```bash
+python manage.py test sparsamp_app.tests.test_views
+```
+
 ### Performance Considerations
 
 - BackCheck tree exploration can be expensive (max attempts configurable via `MAX_BACKCHECK_ATTEMPTS`)
@@ -337,4 +343,5 @@ Test with various contexts and seeds to ensure robustness.
 - `stegoaas/settings.py` - Django settings including SPARSAMP_CONTEXT_STRING
 - Always run `test_short_text` after changes to verify integrity
 - Run `test_multiple_texts` after bigger changes for comprehensive validation
-- All tests located in `sparsamp_app/tests/test_sparsamp.py`
+- Integration tests located in `sparsamp_app/tests/test_sparsamp.py`
+- API endpoint tests located in `sparsamp_app/tests/test_views.py`

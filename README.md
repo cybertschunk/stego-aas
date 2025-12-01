@@ -294,9 +294,15 @@ python manage.py test sparsamp_app
 ### Test Coverage
 
 The test suite includes:
+
+**Integration Tests (`test_sparsamp.py`):**
 - `test_short_text`: Single short message encoding/decoding
-- `test_middle_text`: Medium-length messages across multiple segments
 - `test_multiple_texts`: Comprehensive test of various message lengths
+
+**API Tests (`test_views.py`):**
+- `test_encode_decode_roundtrip`: Full API roundtrip verifying encode and decode endpoints work correctly
+- `test_encode_missing_fields`: Validates 400 response when required encode fields are missing
+- `test_decode_missing_fields`: Validates 400 response when required decode fields are missing
 
 All tests track BackCheck performance metrics to ensure efficient decoding.
 
@@ -317,7 +323,8 @@ stego-aas/
 │       │   ├── serializers.py     # Request/response serialization
 │       │   ├── urls.py            # URL routing
 │       │   └── tests/             # Test suite
-│       │       └── test_sparsamp.py
+│       │       ├── test_sparsamp.py  # Integration tests
+│       │       └── test_views.py     # API endpoint tests
 │       └── stegoaas/              # Django project settings
 │           ├── settings.py
 │           ├── urls.py

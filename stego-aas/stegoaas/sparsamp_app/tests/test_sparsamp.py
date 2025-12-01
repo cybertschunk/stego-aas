@@ -1,8 +1,8 @@
 from django.test import TestCase
 
-from ..encoding import full_encode
 from ..decoding import full_decode
-from ..model_manager import get_model_manager
+from ..encoding import full_encode
+
 
 class SparSampTest(TestCase):
 
