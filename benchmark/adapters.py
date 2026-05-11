@@ -49,7 +49,8 @@ class StegoAdapter(Protocol):
     name: str
 
     def encode(self, bits: str, prompt: str, seed: int) -> EncodeResult: ...
-    def decode(self, stego: str, prompt: str, seed: int) -> DecodeResult: ...
+    def decode(self, stego: str, prompt: str, seed: int,
+               expected_bits: int) -> DecodeResult: ...
 
 
 # ---- BackCheck adapter ---------------------------------------------------- #
@@ -102,7 +103,8 @@ class BackCheckAdapter:
             extra={"num_messages": len(messages)},
         )
 
-    def decode(self, stego: str, prompt: str, seed: int) -> DecodeResult:
+    def decode(self, stego: str, prompt: str, seed: int,
+               expected_bits: int) -> DecodeResult:
         messages = stego.split(_BACKCHECK_SEP)
 
         t0 = time.time()
@@ -124,6 +126,9 @@ class BackCheckAdapter:
             recovered_bits: Optional[str] = self._string_to_bits(decoded_text)
         except UnicodeDecodeError:
             recovered_bits = None
+        # BackCheck ignores expected_bits (its decode returns exactly what was
+        # encoded). The param is part of the protocol for STEAD's truncation.
+        del expected_bits
 
         return DecodeResult(
             recovered_bits=recovered_bits,
@@ -150,8 +155,9 @@ def make_stead_adapter(**kwargs: Any) -> StegoAdapter:
                 extra={"total_capacity": out.total_capacity, "embed_time": out.embed_time},
             )
 
-        def decode(self, stego: str, prompt: str, seed: int) -> DecodeResult:
-            out = inner.decode(stego, prompt, seed, expected_bits=512)
+        def decode(self, stego: str, prompt: str, seed: int,
+                   expected_bits: int) -> DecodeResult:
+            out = inner.decode(stego, prompt, seed, expected_bits=expected_bits)
             return DecodeResult(
                 recovered_bits=out.recovered_bits,
                 elapsed_s=out.elapsed_s,

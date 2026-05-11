@@ -44,12 +44,15 @@ class SteadAdapter:
     name = "stead"
     DEFAULT_MODEL = "Dream-org/Dream-v0-Instruct-7B"
 
-    # NOTE: STEAD's `length` is max_new_tokens of stego output. Per-token capacity
-    # is `log2(1/p_max)` ~ 0.1-0.3 bits at temp=1.0, so length=512 only fits
-    # ~70-150 bits. To embed a 512-bit message we need ~2-4x more headroom.
-    # 2048 tokens was empirically enough in our smoke runs (~500 bits capacity).
-    # Override via `SteadAdapter(length=...)` if needed.
-    def __init__(self, device: Optional[str] = None, length: int = 2048):
+    # NOTE: STEAD's `length` is max_new_tokens. Per-token capacity is
+    # ~0.1-0.3 bits at temp=1.0, so length=512 fits ~70-150 bits. The
+    # adapter pads the incoming message bits to PAD_BITS (well above what
+    # any reasonable length+temp combo can consume), so STEAD never runs
+    # past the end of the bit string — we truncate to the caller's
+    # expected_bits when decoding.
+    PAD_BITS = 4096
+
+    def __init__(self, device: Optional[str] = None, length: int = 512):
         self._verify_upstream_complete()
 
         import torch
@@ -82,6 +85,10 @@ class SteadAdapter:
         from stead_baseline.wrapper import _build_settings  # noqa: WPS433
         from stead_baseline.wrapper import _set_seed        # noqa: WPS433
 
+        # STEAD consumes message_bits[d] per token; pad with deterministic
+        # '0's so we never index past the end. Decoder will truncate.
+        padded_bits = bits.ljust(self.PAD_BITS, "0")
+
         settings = _build_settings(length=self.length, seed=seed, device=self.device)
         _set_seed(seed)
 
@@ -89,7 +96,7 @@ class SteadAdapter:
         single_output, embed_time = encode_text(
             self._model,
             self._tokenizer,
-            message_bits=bits,
+            message_bits=padded_bits,
             prompt=prompt,
             settings=settings,
         )

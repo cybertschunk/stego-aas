@@ -75,7 +75,7 @@ def _run_one(adapter: StegoAdapter, *, bits: str, prompt: str, seed: int):
         return enc, dec, encode_err, decode_err
 
     try:
-        dec = adapter.decode(enc.stego_text, prompt, seed)
+        dec = adapter.decode(enc.stego_text, prompt, seed, expected_bits=len(bits))
     except Exception as exc:  # noqa: BLE001
         decode_err = repr(exc)
 
