@@ -1,10 +1,30 @@
+# ============================================================================
+# Vendored from https://github.com/7-yaya/STEAD
+# Commit: dc0a48ee7ba98f8e80b047b33105120919bb40a9 (2025-12-08)
+#
+# Original work by the STEAD authors:
+#   Yuang Qi, Na Zhao, Qiyi Yao, Benlong Wu, Weiming Zhang, Nenghai Yu,
+#   Kejiang Chen
+#   Anhui Province Key Laboratory of Digital Security,
+#   University of Science and Technology of China.
+# Paper: "STEAD: Robust Provably Secure Linguistic Steganography with
+#         Diffusion Language Model" — NeurIPS 2025.
+#
+# Upstream did not include a LICENSE file at the vendored commit.
+#
+# Local modification in this copy (NOT by the original authors):
+#   - Line below: added `from collections import Counter`. Upstream uses
+#     `Counter` at line ~506 in `find_most_common` without importing it,
+#     which would raise NameError on the first call. No algorithmic change.
+# ============================================================================
+
 import time
 import torch
 from torch.nn import functional as F
 import random
 from scipy.stats import entropy
 import numpy as np
-from collections import Counter  # Patched in: upstream uses Counter at line 505 without importing it
+from collections import Counter  # Local patch — see header above
 
 from utils import (
     top_k_logits,

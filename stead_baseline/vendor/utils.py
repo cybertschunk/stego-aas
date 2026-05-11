@@ -1,6 +1,14 @@
-"""Reconstruction of STEAD's missing upstream `utils.py`.
+"""Reconstructed `utils.py` for STEAD.
 
-Provides the helpers imported by vendored `stead.py` and `main_stead.py`:
+This file is NOT part of the upstream STEAD release. It is local glue
+added to make the vendored STEAD code importable.
+
+Background: the upstream repository
+  https://github.com/7-yaya/STEAD @ dc0a48ee7ba98f8e80b047b33105120919bb40a9
+ships `stead.py` and `main_stead.py` (by the STEAD authors — Yuang Qi et al.,
+USTC) which both `import` from a module called `utils`. That `utils.py` is
+absent from the published repo. This file reconstructs only the helpers
+imported by the vendored modules:
 - `top_k_logits`, `top_p_logits` — standard logit filters
 - `set_seed` — torch/numpy/random determinism
 - `SingleExampleOutput` — re-exported from `stego_utils.py`

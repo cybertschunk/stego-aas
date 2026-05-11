@@ -1,3 +1,19 @@
+# ============================================================================
+# Vendored verbatim from https://github.com/7-yaya/STEAD
+# Commit: dc0a48ee7ba98f8e80b047b33105120919bb40a9 (2025-12-08)
+#
+# Original work by the STEAD authors:
+#   Yuang Qi, Na Zhao, Qiyi Yao, Benlong Wu, Weiming Zhang, Nenghai Yu,
+#   Kejiang Chen
+#   Anhui Province Key Laboratory of Digital Security,
+#   University of Science and Technology of China.
+# Paper: "STEAD: Robust Provably Secure Linguistic Steganography with
+#         Diffusion Language Model" — NeurIPS 2025.
+#
+# Upstream did not include a LICENSE file at the vendored commit.
+# No local modifications.
+# ============================================================================
+
 import os
 
 # 设置HuggingFace缓存路径

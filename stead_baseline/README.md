@@ -4,13 +4,32 @@ Vendored copy of **STEAD** (NeurIPS 2025, *Robust Provably Secure Linguistic
 Steganography with Diffusion Language Model*) plus the local glue needed to
 benchmark it against this repo's BackCheck implementation.
 
+## Attribution
+
+The algorithmic code under `vendor/` is the work of the **STEAD authors**,
+not anyone in this repository:
+
+> Yuang Qi, Na Zhao, Qiyi Yao, Benlong Wu, Weiming Zhang, Nenghai Yu,
+> Kejiang Chen — Anhui Province Key Laboratory of Digital Security,
+> University of Science and Technology of China.
+> *"STEAD: Robust Provably Secure Linguistic Steganography with Diffusion
+> Language Model."* NeurIPS 2025.
+
 - Upstream: https://github.com/7-yaya/STEAD
 - Vendored commit: `dc0a48ee7ba98f8e80b047b33105120919bb40a9` (2025-12-08)
-- Files copied verbatim into `vendor/`: `main_stead.py`, `stead.py`, `stego_utils.py`, `README.upstream.md`
-- License: no LICENSE file in upstream repo at the vendored commit. Treat as
-  "all rights reserved" for redistribution purposes; we use it here for
-  academic comparison only. **Do not redistribute outside this repo until the
-  authors publish a license.**
+- Files copied from upstream into `vendor/`: `main_stead.py`, `stead.py`,
+  `stego_utils.py`, `README.upstream.md` — each carries an attribution
+  header pointing back to the original authors.
+- Files **added locally** under `vendor/` (NOT by the STEAD authors, just
+  glue so their code imports cleanly): `config.py`, `utils.py`. Both files
+  declare this in their module docstring.
+- One local one-line patch to `vendor/stead.py` (added a missing
+  `from collections import Counter` import) — flagged in that file's header.
+
+License: no LICENSE file in upstream repo at the vendored commit. Treat as
+"all rights reserved" for redistribution purposes; we use it here for
+academic comparison only. **Do not redistribute outside this repo until the
+authors publish a license.**
 
 ## Status: FUNCTIONAL (with reconstructed config / utils)
 
