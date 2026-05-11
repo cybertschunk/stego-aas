@@ -44,7 +44,12 @@ class SteadAdapter:
     name = "stead"
     DEFAULT_MODEL = "Dream-org/Dream-v0-Instruct-7B"
 
-    def __init__(self, device: Optional[str] = None, length: int = 512):
+    # NOTE: STEAD's `length` is max_new_tokens of stego output. Per-token capacity
+    # is `log2(1/p_max)` ~ 0.1-0.3 bits at temp=1.0, so length=512 only fits
+    # ~70-150 bits. To embed a 512-bit message we need ~2-4x more headroom.
+    # 2048 tokens was empirically enough in our smoke runs (~500 bits capacity).
+    # Override via `SteadAdapter(length=...)` if needed.
+    def __init__(self, device: Optional[str] = None, length: int = 2048):
         self._verify_upstream_complete()
 
         import torch

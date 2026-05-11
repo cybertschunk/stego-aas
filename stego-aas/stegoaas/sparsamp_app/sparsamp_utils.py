@@ -50,23 +50,28 @@ def limit_past(past):
     """
     Limit the past key-value cache to the maximum context window size.
 
-    Args:
-        past: DynamicCache object from the transformer model
-
-    Returns:
-        Truncated DynamicCache limited to CONTEXT_WINDOW_SIZE
+    Transformers' GPT-2 returns `past_key_values` either as a `DynamicCache`
+    (depending on the model's cache_implementation setting) or as a plain
+    tuple-of-tuples (legacy format). Handle both — return the same shape we
+    received.
     """
     if past is None:
         return None
 
-    # Convert to legacy format for truncation, then convert back
-    legacy_past = past.to_legacy_cache()
-    legacy_past = list(legacy_past)
+    is_legacy_tuple = not hasattr(past, "to_legacy_cache")
+
+    if is_legacy_tuple:
+        legacy_past = list(past)
+    else:
+        legacy_past = list(past.to_legacy_cache())
+
     for i in range(len(legacy_past)):
         legacy_past[i] = list(legacy_past[i])
         for j in range(len(legacy_past[i])):
             legacy_past[i][j] = legacy_past[i][j][:, :, -CONTEXT_WINDOW_SIZE:]
 
+    if is_legacy_tuple:
+        return tuple(tuple(layer) for layer in legacy_past)
     return DynamicCache.from_legacy_cache(legacy_past)
 
 
