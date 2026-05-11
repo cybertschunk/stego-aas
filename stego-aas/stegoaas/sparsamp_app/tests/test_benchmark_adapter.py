@@ -32,8 +32,7 @@ class BackCheckAdapterRoundTripTest(TestCase):
         enc = adapter.encode(msg.bits, prompt="Once upon a time", seed=12345)
         self.assertGreater(len(enc.stego_text), 0)
 
-        dec = adapter.decode(enc.stego_text, prompt="Once upon a time", seed=12345,
-                             expected_bits=len(msg.bits))
+        dec = adapter.decode(enc.stego_text, prompt="Once upon a time", seed=12345)
         self.assertEqual(
             dec.recovered_bits, msg.bits,
             f"Adapter round-trip lost bits. "
