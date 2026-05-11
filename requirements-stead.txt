@@ -1,0 +1,11 @@
+# Extra dependencies for running the STEAD baseline (vendored under
+# stead_baseline/). Install on top of requirements.txt on a GPU box:
+#   pip install -r requirements.txt -r requirements-stead.txt
+#
+# Versions pinned in STEAD's upstream README; we keep them narrow to match
+# the paper's environment. Override if you've already settled on different
+# torch / transformers versions for the BackCheck side.
+transformers==4.46.2
+torch==2.5.1
+scipy>=1.11
+tqdm>=4.66
