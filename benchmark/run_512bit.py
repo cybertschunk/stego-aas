@@ -53,7 +53,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--prompt", default=DEFAULT_PROMPT,
                    help="Shared prompt/context fed to both systems")
     p.add_argument("--num-chars", type=int, default=64,
-                   help="Message length in chars (64 = 512 bits)")
+                   help="Message length in chars (64 = 512 bits, 8 = 64 bits)")
+    p.add_argument("--stead-length", type=int, default=None,
+                   help="STEAD max_new_tokens (None = SteadAdapter default). Smaller = faster but less capacity.")
     p.add_argument("--skip-stead", action="store_true",
                    help="Run BackCheck only (STEAD's upstream code may be missing)")
     p.add_argument("--out", default=None,
@@ -126,8 +128,11 @@ def main() -> int:
 
     if not args.skip_stead:
         try:
-            print("Loading STEAD adapter (Dream-7B)…")
-            adapters.append(make_stead_adapter())
+            stead_kwargs = {}
+            if args.stead_length is not None:
+                stead_kwargs["length"] = args.stead_length
+            print(f"Loading STEAD adapter (Dream-7B, length={stead_kwargs.get('length', 'default')})…")
+            adapters.append(make_stead_adapter(**stead_kwargs))
         except Exception as exc:  # noqa: BLE001
             print(f"!! STEAD unavailable: {exc}", file=sys.stderr)
             print("!! Continuing with BackCheck only. Re-run after upstream is complete.",
